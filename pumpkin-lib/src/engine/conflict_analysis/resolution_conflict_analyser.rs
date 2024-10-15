@@ -1,22 +1,22 @@
-use std::collections::{HashMap, HashSet};
-use std::slice::Iter;
 use super::ConflictAnalysisContext;
 use super::RecursiveMinimiser;
 use super::SemanticMinimiser;
-use crate::basic_types::{ClauseReference};
 use crate::basic_types::KeyedVec;
-use crate::engine::clause_allocators::{ClauseAllocatorInterface, ClauseBasic, ClauseInterface};
+use crate::basic_types::ClauseReference;
+use crate::engine::clause_allocators::{ClauseAllocatorInterface, ClauseInterface};
 use crate::engine::constraint_satisfaction_solver::CoreExtractionResult;
-use crate::engine::{AssignmentsPropositional, ConstraintSatisfactionSolver};
-use crate::engine::propagation::{PropagatorId, ReadDomains};
+use crate::engine::propagation::PropagatorId;
 use crate::engine::variables::Literal;
 use crate::engine::variables::PropositionalVariable;
 #[cfg(doc)]
 use crate::engine::ConstraintSatisfactionSolver;
+use crate::engine::AssignmentsPropositional;
 use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
-use crate::variable_names::VariableNames;
+use std::collections::HashSet;
+use std::slice::Iter;
+use crate::basic_types::moving_averages::MovingAverage;
 
 #[derive(Clone, Default, Debug)]
 /// The outcome of clause learning.
@@ -70,14 +70,14 @@ impl LearnedClause {
                            new_literals: Iter<Literal>, cancel_literal: Option<Literal>) {
 
         new_literals.for_each(|literal| {
-            self.literals.insert(*literal);
+            let _ = self.literals.insert(*literal);
             self.update_decision_level_count(assignments_propositional, literal, true);
         });
 
         if let Some(literal) = cancel_literal {
-            self.literals.remove(&literal);
+            let _ = self.literals.remove(&literal);
             self.update_decision_level_count(assignments_propositional, &literal, false);
-            self.literals.remove(&!literal);
+            let _ = self.literals.remove(&!literal);
             self.update_decision_level_count(assignments_propositional, &!literal, false);
         }
     }
@@ -86,20 +86,11 @@ impl LearnedClause {
         let level = assignments_propositional.get_variable_assignment_level(literal.get_propositional_variable());
         if level == self.decision_level {
             if add {
-                self.literals_in_decision_level.insert(*literal);
+                let _ = self.literals_in_decision_level.insert(*literal);
             } else {
-                self.literals_in_decision_level.remove(literal);
+                let _ = self.literals_in_decision_level.remove(literal);
             }
         }
-    }
-
-    fn print(&self, names: &VariableNames) -> String {
-        let mut s = String::new();
-        self.literals.iter().for_each(|lit| {
-            s += " ";
-            s += lit.print(names).as_str()
-        });
-        s
     }
 }
 
@@ -124,7 +115,6 @@ impl ResolutionConflictAnalyser {
     /// solvers’, in Handbook of satisfiability, IOS press, 2021
     pub(crate) fn compute_1uip(
         &mut self,
-        names: &VariableNames,
         context: &mut ConflictAnalysisContext,
     ) -> ConflictAnalysisResult {
         self.seen.resize(
@@ -146,28 +136,44 @@ impl ResolutionConflictAnalyser {
 
         // Idea: we go back on the trail and perform resolution for each item on the trail that is
         for trail_index in (0..start_index).rev() {
-            let learned_clause_init_print = learned_clause.print(names); // PRINT
+            let next_literal = context.assignments_propositional.get_trail_entry(trail_index);
 
-            let trail_entry = context.assignments_propositional.get_trail_entry(trail_index).clone();
-            let trail_entry_print = trail_entry.print(names); // PRINT
-            if !learned_clause.contains(&!trail_entry) {
-                println!("Literal {trail_entry_print} not in trail");
+            // Doesn't work because I don't keep the analyis_result up to date (I don't use it at all)
+            // pumpkin_assert_moderate!(Self::debug_1uip_conflict_analysis_check_next_literal(
+            //     Some(next_literal),
+            //     context
+            // ));
+
+            if !learned_clause.contains(&!next_literal) {
                 continue
             }
 
-            let propagation_reason = context.get_propagation_clause_reference(trail_entry, &mut |_| {});
+            // From original implementation
+            context
+                .brancher
+                .on_appearance_in_conflict_literal(next_literal);
+
+            let propagation_reason = context.get_propagation_clause_reference(next_literal, &mut |_| {});
             let propagation_clause = context.clause_allocator.get_clause(propagation_reason);
 
-            let propagation_clause_print = propagation_clause.print(names); // PRINT
+            learned_clause.merge_with_literals(context.assignments_propositional, propagation_clause.get_literal_slice().iter(), Some(next_literal));
 
-            learned_clause.merge_with_literals(context.assignments_propositional, propagation_clause.get_literal_slice().iter(), Some(trail_entry));
+            // From original implementation
+            context
+                .counters
+                .average_conflict_size
+                .add_term(propagation_clause.len() as u64);
 
-            let learned_clause_after_print = learned_clause.print(names);
-            let learned_clause_number_of_dec = learned_clause.literals_in_decision_level.len();
-            println!("Resolving {trail_entry_print} with {learned_clause_init_print} and {propagation_clause_print} to get {learned_clause_after_print} with {learned_clause_number_of_dec} in level");
+            context
+                .learned_clause_manager
+                .update_clause_lbd_and_bump_activity(
+                    propagation_reason,
+                    context.assignments_propositional,
+                    context.clause_allocator,
+                );
 
             if learned_clause.can_stop() {
-                println!("Only one at level {trail_index}");
+                // println!("Only one at level {trail_index}"); // TODO REMOVE PRINT
                 break
             }
         }
@@ -185,7 +191,25 @@ impl ResolutionConflictAnalyser {
             }
         }).max().unwrap_or(0);
 
-        ConflictAnalysisResult { learned_literals, backjump_level }
+        let mut analysis_result = ConflictAnalysisResult { learned_literals, backjump_level };
+
+        // From original implementation
+        if context.internal_parameters.learning_clause_minimisation {
+            // Doesn't work because I don't keep the analyis_result up to date (I don't use it at all)
+            // pumpkin_assert_moderate!(self.debug_check_conflict_analysis_result(false, context));
+
+            self.recursive_minimiser
+                .remove_dominated_literals(context, &mut analysis_result);
+
+            self.semantic_minimiser
+                .minimise(context, &mut analysis_result);
+        }
+
+        context
+            .explanation_clause_manager
+            .clean_up_explanation_clauses(context.clause_allocator);
+
+        analysis_result
     }
 
     // computes the learned clause containing only decision literals and stores it in

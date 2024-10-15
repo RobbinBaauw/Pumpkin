@@ -1148,7 +1148,7 @@ impl ConstraintSatisfactionSolver {
             nogood_step_ids: &self.nogood_step_ids,
         };
         self.conflict_analyser
-            .compute_1uip(&self.variable_names, &mut conflict_analysis_context)
+            .compute_1uip(&mut conflict_analysis_context)
     }
 
     fn process_learned_clause(&mut self, brancher: &mut impl Brancher) {
