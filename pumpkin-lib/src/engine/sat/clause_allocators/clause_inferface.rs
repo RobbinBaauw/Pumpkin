@@ -1,4 +1,6 @@
+use std::collections::HashSet;
 use crate::engine::variables::Literal;
+use crate::variable_names::VariableNames;
 
 // Does not make sense to have an is_empty() function since clauses are never empty
 #[allow(clippy::len_without_is_empty)]
@@ -13,6 +15,7 @@ pub(crate) trait ClauseInterface:
     fn get_literal_slice(&self) -> &[Literal];
     fn lbd(&self) -> u32;
     fn get_activity(&self) -> f32;
+    fn contains_literal(&self, lit: &Literal) -> bool;
 
     // note that this does _not_ delete the clause, it simply marks it as if it was deleted
     //  to delete a clause, use the ClauseManager
@@ -23,4 +26,6 @@ pub(crate) trait ClauseInterface:
     fn update_lbd(&mut self, new_lbd: u32);
     fn increase_activity(&mut self, increment: f32);
     fn divide_activity(&mut self, division_factor: f32);
+
+    fn print(&self, names: &VariableNames) -> String;
 }

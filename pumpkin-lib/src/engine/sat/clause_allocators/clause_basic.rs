@@ -1,13 +1,16 @@
+use std::collections::HashSet;
 use super::ClauseInterface;
 use crate::engine::variables::Literal;
 use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
+use crate::variable_names::VariableNames;
 
 #[allow(clippy::len_without_is_empty)] // The clause will always have at least two literals.
 #[derive(Debug)]
 pub(crate) struct ClauseBasic {
     literals: Vec<Literal>,
+    literals_set: HashSet<Literal>,
     is_learned: bool,
     is_deleted: bool,
     is_protected_aganst_deletion: bool,
@@ -20,8 +23,11 @@ impl ClauseBasic {
         pumpkin_assert_simple!(literals.len() >= 2);
 
         let num_literals = literals.len() as u32;
+        let literals_set = HashSet::from_iter(literals.iter().cloned());
+
         ClauseBasic {
             literals,
+            literals_set,
             is_learned,
             is_deleted: false,
             is_protected_aganst_deletion: false,
@@ -61,6 +67,10 @@ impl ClauseInterface for ClauseBasic {
         self.activity
     }
 
+    fn contains_literal(&self, lit: &Literal) -> bool {
+        self.literals_set.contains(&lit)
+    }
+
     // note that this does _not_ delete the clause, it simply marks it as if it was deleted
     //  to delete a clause, use the ClauseManager
     //  could restrict access of this method in the future
@@ -89,6 +99,15 @@ impl ClauseInterface for ClauseBasic {
 
     fn divide_activity(&mut self, division_factor: f32) {
         self.activity /= division_factor;
+    }
+
+    fn print(&self, names: &VariableNames) -> String {
+        let mut s = String::new();
+        self.literals.iter().for_each(|lit| {
+            s += " ";
+            s += lit.print(names).as_str()
+        });
+        s
     }
 }
 

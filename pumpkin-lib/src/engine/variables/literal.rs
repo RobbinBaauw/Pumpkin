@@ -1,6 +1,7 @@
 use crate::basic_types::StorageKey;
 use crate::engine::variables::PropositionalVariable;
 use crate::pumpkin_assert_moderate;
+use crate::variable_names::VariableNames;
 
 /// A boolean variable in the solver; represents a [`PropositionalVariable`] but with a certain
 /// polarity (i.e. it is either the positive [`PropositionalVariable`] or its negation).
@@ -37,6 +38,12 @@ impl Literal {
         let code = variable_index * 2 + ((literal_code & 1) == 1) as u32;
         pumpkin_assert_moderate!(Literal { code }.to_u32() == literal_code);
         Literal { code }
+    }
+
+    pub fn print(self, names: &VariableNames) -> String {
+        let sign = if self.is_positive() { "" } else { "-" };
+        let name = names.get_propositional_name(self.get_propositional_variable()).unwrap_or("unknown");
+        format!("{sign}{name}")
     }
 }
 
