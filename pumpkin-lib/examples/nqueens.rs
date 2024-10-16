@@ -88,7 +88,16 @@ fn main() {
         .post();
 
     let mut brancher = solver.default_brancher_over_all_propositional_variables();
-    match solver.satisfy(&mut brancher, &mut Indefinite) {
+
+    use std::time::Instant;
+    let now = Instant::now();
+
+    let satisfy = solver.satisfy(&mut brancher, &mut Indefinite);
+
+    let elapsed = now.elapsed();
+    println!("Elapsed: {:.2?}", elapsed);
+
+    match satisfy {
         SatisfactionResult::Satisfiable(solution) => {
             let row_separator = format!("{}+", "+---".repeat(n as usize));
 

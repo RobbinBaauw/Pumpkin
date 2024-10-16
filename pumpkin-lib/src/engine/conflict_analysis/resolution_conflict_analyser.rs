@@ -127,6 +127,10 @@ impl ResolutionConflictAnalyser {
         let start_index = context.assignments_propositional.num_trail_entries();
 
         let decision_level = context.assignments_propositional.get_decision_level();
+        if context.assignments_propositional.is_at_the_root_level() {
+            return ConflictAnalysisResult { learned_literals: vec![], backjump_level: 0 };
+        }
+
         let mut learned_clause = LearnedClause::new(decision_level);
 
         let conflict_reason = context.get_conflict_reason_clause_reference(&mut |_| {});
@@ -138,7 +142,7 @@ impl ResolutionConflictAnalyser {
         for trail_index in (0..start_index).rev() {
             let next_literal = context.assignments_propositional.get_trail_entry(trail_index);
 
-            // Doesn't work because I don't keep the analyis_result up to date (I don't use it at all)
+            // TODO Doesn't work because I don't keep the analyis_result up to date (I don't use it at all)
             // pumpkin_assert_moderate!(Self::debug_1uip_conflict_analysis_check_next_literal(
             //     Some(next_literal),
             //     context
@@ -152,6 +156,11 @@ impl ResolutionConflictAnalyser {
             context
                 .brancher
                 .on_appearance_in_conflict_literal(next_literal);
+
+            if context.assignments_propositional.is_literal_decision(next_literal) {
+                learned_clause.merge_with_literals(context.assignments_propositional, vec![!next_literal].iter(), None);
+                break
+            }
 
             let propagation_reason = context.get_propagation_clause_reference(next_literal, &mut |_| {});
             let propagation_clause = context.clause_allocator.get_clause(propagation_reason);
@@ -173,7 +182,6 @@ impl ResolutionConflictAnalyser {
                 );
 
             if learned_clause.can_stop() {
-                // println!("Only one at level {trail_index}"); // TODO REMOVE PRINT
                 break
             }
         }
@@ -181,7 +189,12 @@ impl ResolutionConflictAnalyser {
         assert_eq!(learned_clause.literals_in_decision_level.len(), 1);
         let l_top = learned_clause.literals_in_decision_level.iter().nth(0).unwrap();
 
-        let learned_literals = Vec::from_iter(learned_clause.literals);
+        let mut learned_literals = Vec::from_iter(learned_clause.literals);
+
+        // Correct l_top index (for some reason required?)
+        let l_top_index = learned_literals.iter().position(|literal| literal == l_top).unwrap();
+        learned_literals[l_top_index] = learned_literals[0];
+        learned_literals[0] = *l_top;
 
         let backjump_level = learned_literals.iter().filter_map(|literal| {
             if literal == l_top {
@@ -191,25 +204,24 @@ impl ResolutionConflictAnalyser {
             }
         }).max().unwrap_or(0);
 
-        let mut analysis_result = ConflictAnalysisResult { learned_literals, backjump_level };
+        self.analysis_result = ConflictAnalysisResult { learned_literals, backjump_level };
 
         // From original implementation
         if context.internal_parameters.learning_clause_minimisation {
-            // Doesn't work because I don't keep the analyis_result up to date (I don't use it at all)
-            // pumpkin_assert_moderate!(self.debug_check_conflict_analysis_result(false, context));
+            pumpkin_assert_moderate!(self.debug_check_conflict_analysis_result(false, context));
 
             self.recursive_minimiser
-                .remove_dominated_literals(context, &mut analysis_result);
+                .remove_dominated_literals(context, &mut self.analysis_result);
 
             self.semantic_minimiser
-                .minimise(context, &mut analysis_result);
+                .minimise(context, &mut self.analysis_result);
         }
 
         context
             .explanation_clause_manager
             .clean_up_explanation_clauses(context.clause_allocator);
 
-        analysis_result
+        self.analysis_result.clone()
     }
 
     // computes the learned clause containing only decision literals and stores it in
