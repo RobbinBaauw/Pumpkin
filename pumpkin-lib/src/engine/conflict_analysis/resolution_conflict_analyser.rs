@@ -70,6 +70,9 @@ impl LearnedClause {
                            new_literals: Iter<Literal>, cancel_literal: Option<Literal>) {
 
         new_literals.for_each(|literal| {
+            let is_root_assignment = assignments_propositional.is_literal_root_assignment(*literal);
+            if is_root_assignment { return; }
+
             let _ = self.literals.insert(*literal);
             self.update_decision_level_count(assignments_propositional, literal, true);
         });
@@ -159,7 +162,7 @@ impl ResolutionConflictAnalyser {
 
             if context.assignments_propositional.is_literal_decision(next_literal) {
                 learned_clause.merge_with_literals(context.assignments_propositional, vec![!next_literal].iter(), None);
-                break
+                continue
             }
 
             let propagation_reason = context.get_propagation_clause_reference(next_literal, &mut |_| {});
