@@ -10,7 +10,7 @@ use crate::engine::variables::Literal;
 use crate::engine::variables::PropositionalVariable;
 #[cfg(doc)]
 use crate::engine::ConstraintSatisfactionSolver;
-use crate::engine::AssignmentsPropositional;
+use crate::engine::{AssignmentsPropositional, VariableLiteralMappings};
 use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
@@ -74,13 +74,19 @@ impl LearnedClause {
     }
 
     fn merge_with_literals(&mut self, assignments_propositional: &AssignmentsPropositional,
-                           brancher: &mut dyn Brancher, new_literals: Iter<Literal>, cancel_literal: Option<Literal>) {
+                           brancher: &mut dyn Brancher, variable_literal_mappings: &VariableLiteralMappings,
+                           new_literals: Iter<Literal>, cancel_literal: Option<Literal>) {
 
         new_literals.for_each(|literal| {
             let is_root_assignment = assignments_propositional.is_literal_root_assignment(*literal);
             if is_root_assignment { return; }
 
+            if cancel_literal.is_some() && *literal == cancel_literal.unwrap() { return; }
+
             brancher.on_appearance_in_conflict_literal(*literal);
+            if let Some(reason_domain) = variable_literal_mappings.get_domain_literal(*literal) {
+               brancher.on_appearance_in_conflict_integer(reason_domain);
+            }
 
             let _ = self.literals.insert(*literal);
             self.update_decision_level_count(assignments_propositional, literal, true);
@@ -153,7 +159,15 @@ impl ResolutionConflictAnalyser {
 
         let conflict_reason = context.get_conflict_reason_clause_reference(&mut |_| {});
         let conflict_clause = context.clause_allocator.get_clause(conflict_reason);
-        learned_clause.merge_with_literals(context.assignments_propositional, context.brancher, conflict_clause.get_literal_slice().iter(), None);
+
+        context
+            .counters
+            .learned_clause_statistics
+            .average_conflict_size
+            .add_term(conflict_clause.len() as u64);
+
+        learned_clause.merge_with_literals(context.assignments_propositional, context.brancher, context.variable_literal_mappings,
+                                           conflict_clause.get_literal_slice().iter(), None);
 
         context
             .learned_clause_manager
@@ -163,8 +177,13 @@ impl ResolutionConflictAnalyser {
                 context.clause_allocator,
             );
 
+
         // Idea: we go back on the trail and perform resolution for each item on the trail that is
         for trail_index in (0..start_index).rev() {
+            if learned_clause.can_stop() {
+                break
+            }
+
             let next_literal = context.assignments_propositional.get_trail_entry(trail_index);
 
             pumpkin_assert_moderate!(Self::debug_1uip_conflict_analysis_check_next_literal(
@@ -177,22 +196,18 @@ impl ResolutionConflictAnalyser {
             }
 
             if context.assignments_propositional.is_literal_decision(next_literal) {
-                learned_clause.merge_with_literals(context.assignments_propositional, context.brancher, vec![!next_literal].iter(), None);
+                learned_clause.merge_with_literals(context.assignments_propositional, context.brancher, context.variable_literal_mappings,
+                                                   vec![!next_literal].iter(), None);
                 break
             }
 
             let propagation_reason = context.get_propagation_clause_reference(next_literal, &mut |_| {});
             let propagation_clause = context.clause_allocator.get_clause(propagation_reason);
 
-            learned_clause.merge_with_literals(context.assignments_propositional, context.brancher, propagation_clause.get_literal_slice().iter(), Some(next_literal));
+            learned_clause.merge_with_literals(context.assignments_propositional, context.brancher, context.variable_literal_mappings,
+                                               propagation_clause.get_literal_slice().iter(), Some(next_literal));
 
             // From original implementation
-            context
-                .counters
-                .learned_clause_statistics
-                .average_conflict_size
-                .add_term(propagation_clause.len() as u64);
-
             context
                 .learned_clause_manager
                 .update_clause_lbd_and_bump_activity(
@@ -200,12 +215,7 @@ impl ResolutionConflictAnalyser {
                     context.assignments_propositional,
                     context.clause_allocator,
                 );
-
-            if learned_clause.can_stop() {
-                break
-            }
         }
-
 
         let mut learned_literals = Vec::from_iter(learned_clause.literals);
 
@@ -236,6 +246,8 @@ impl ResolutionConflictAnalyser {
             self.semantic_minimiser
                 .minimise(context, &mut self.analysis_result);
         }
+
+        pumpkin_assert_moderate!(self.debug_check_conflict_analysis_result(false, context));
 
         context
             .explanation_clause_manager
