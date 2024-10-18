@@ -189,6 +189,7 @@ impl ResolutionConflictAnalyser {
             // From original implementation
             context
                 .counters
+                .learned_clause_statistics
                 .average_conflict_size
                 .add_term(propagation_clause.len() as u64);
 
