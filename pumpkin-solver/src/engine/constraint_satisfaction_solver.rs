@@ -14,7 +14,7 @@ use rand::SeedableRng;
 
 use super::clause_allocators::ClauseAllocatorInterface;
 use super::clause_allocators::ClauseInterface;
-use super::conflict_analysis::AnalysisStep;
+use super::conflict_analysis::{AnalysisStep, ConflictAnalyser, IntSatConflictAnalyser};
 use super::conflict_analysis::ConflictAnalysisResult;
 use super::conflict_analysis::ResolutionConflictAnalyser;
 use super::propagation::store::PropagatorStore;
@@ -145,7 +145,7 @@ pub struct ConstraintSatisfactionSolver {
     /// Holds the assumptions when the solver is queried to solve under assumptions.
     assumptions: Vec<Literal>,
     /// Performs conflict analysis, core extraction, and minimisation.
-    conflict_analyser: ResolutionConflictAnalyser,
+    conflict_analyser: Box<dyn ConflictAnalyser>,
     /// Tracks information related to the assignments of integer variables.
     pub(crate) assignments_integer: AssignmentsInteger,
     /// Contains information on which propagator to notify upon
@@ -457,7 +457,7 @@ impl ConstraintSatisfactionSolver {
             explanation_clause_manager: ExplanationClauseManager::default(),
             true_literal: dummy_literal,
             false_literal: !dummy_literal,
-            conflict_analyser: ResolutionConflictAnalyser::default(),
+            conflict_analyser: Box::new(IntSatConflictAnalyser::default()),
             clausal_propagator: ClausalPropagatorType::default(),
             learned_clause_manager: LearnedClauseManager::new(learning_options),
             restart_strategy: RestartStrategy::new(solver_options.restart_options),
@@ -737,7 +737,7 @@ impl ConstraintSatisfactionSolver {
     pub(crate) fn get_conflict_reasons(
         &mut self,
         brancher: &mut impl Brancher,
-        on_analysis_step: impl FnMut(AnalysisStep),
+        on_analysis_step: &mut dyn FnMut(AnalysisStep),
     ) {
         let mut conflict_analysis_context = ConflictAnalysisContext {
             propagator_store: &self.cp_propagators,
@@ -1162,7 +1162,7 @@ impl ConstraintSatisfactionSolver {
             nogood_step_ids: &self.nogood_step_ids,
         };
         self.conflict_analyser
-            .compute_1uip(&mut conflict_analysis_context)
+            .conflict_analysis(&mut conflict_analysis_context)
     }
 
     fn process_learned_clause(&mut self, brancher: &mut impl Brancher) {

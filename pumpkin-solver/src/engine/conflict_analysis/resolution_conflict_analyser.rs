@@ -1,10 +1,11 @@
-use super::ConflictAnalysisContext;
+use super::{ConflictAnalyser, ConflictAnalysisContext};
 use super::RecursiveMinimiser;
 use super::SemanticMinimiser;
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::ClauseReference;
 use crate::basic_types::KeyedVec;
 use crate::engine::clause_allocators::ClauseInterface;
+use crate::engine::conflict_analysis::conflict_analyser::ConflictAnalysisResult;
 use crate::engine::constraint_satisfaction_solver::CoreExtractionResult;
 use crate::engine::propagation::PropagatorId;
 use crate::engine::variables::Literal;
@@ -15,16 +16,6 @@ use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_eq_simple;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
-
-#[derive(Clone, Default, Debug)]
-/// The outcome of clause learning.
-pub(crate) struct ConflictAnalysisResult {
-    /// The new learned clause with the propagating literal after backjumping at index 0 and the
-    /// literal with the next highest decision level at index 1.
-    pub(crate) learned_literals: Vec<Literal>,
-    /// The decision level to backtrack to.
-    pub(crate) backjump_level: usize,
-}
 
 #[derive(Default, Debug)]
 pub(crate) struct ResolutionConflictAnalyser {
@@ -39,7 +30,7 @@ pub(crate) struct ResolutionConflictAnalyser {
     semantic_minimiser: SemanticMinimiser,
 }
 
-impl ResolutionConflictAnalyser {
+impl ConflictAnalyser for ResolutionConflictAnalyser {
     /// Compute the 1-UIP clause based on the current conflict. According to \[1\] a unit
     /// implication point (UIP), "represents an alternative decision assignment at the current
     /// decision level that results in the same conflict" (i.e. no matter what the variable at the
@@ -58,7 +49,7 @@ impl ResolutionConflictAnalyser {
     /// # Bibliography
     /// \[1\] J. Marques-Silva, I. Lynce, and S. Malik, ‘Conflict-driven clause learning SAT
     /// solvers’, in Handbook of satisfiability, IOS press, 2021
-    pub(crate) fn compute_1uip(
+    fn conflict_analysis(
         &mut self,
         context: &mut ConflictAnalysisContext,
     ) -> ConflictAnalysisResult {
@@ -251,6 +242,82 @@ impl ResolutionConflictAnalyser {
         self.analysis_result.clone()
     }
 
+    fn compute_clausal_core(&mut self, context: &mut ConflictAnalysisContext) -> CoreExtractionResult {
+        pumpkin_assert_simple!(self.debug_check_core_extraction(context));
+
+        if context.solver_state.is_infeasible() {
+            return CoreExtractionResult::Core(vec![]);
+        }
+
+        let violated_assumption = context.solver_state.get_violated_assumption();
+
+        // we consider three cases:
+        //  1. The assumption is falsified at the root level
+        //  2. The assumption is inconsistent with other assumptions, e.g., x and !x given as
+        //     assumptions
+        //  3. Standard case
+
+        // Case one: the assumption is falsified at the root level
+        if context
+            .assignments_propositional
+            .is_literal_root_assignment(violated_assumption)
+        {
+            CoreExtractionResult::Core(vec![violated_assumption])
+        }
+        // Case two: the assumption is inconsistent with other assumptions (i.e. the assumptions
+        // contain both literal 'x' and '!x')
+        //
+        // We return the literal which has conflicting assumptions
+        else if !context
+            .assignments_propositional
+            .is_literal_propagated(violated_assumption)
+        {
+            CoreExtractionResult::ConflictingAssumption(violated_assumption)
+        }
+        // Case three: the standard case - proceed with core extraction
+        //
+        // Performs resolution on all implied assumptions until only decision assumptions are left.
+        // The violating assumption is used as the starting point at this point, any reason
+        // clause encountered will contains only assumptions, but some assumptions might be
+        // implied.
+        //
+        // This corresponds to the all-decision CDCL learning scheme
+        else {
+            self.compute_all_decision_learning_helper(
+                Some(!violated_assumption),
+                true,
+                context,
+                &mut |_| {},
+            );
+            self.analysis_result
+                .learned_literals
+                .push(!violated_assumption);
+            pumpkin_assert_moderate!(self.debug_check_clausal_core(violated_assumption, context));
+            CoreExtractionResult::Core(
+                self.analysis_result
+                    .learned_literals
+                    .iter()
+                    .map(|negated_assumption| !(*negated_assumption))
+                    .collect(),
+            )
+        }
+    }
+
+    fn get_conflict_reasons(
+        &mut self,
+        context: &mut ConflictAnalysisContext,
+        on_analysis_step: &mut dyn FnMut(AnalysisStep),
+    ) {
+        let next_literal = if context.solver_state.is_infeasible_under_assumptions() {
+            Some(!context.solver_state.get_violated_assumption())
+        } else {
+            None
+        };
+        self.compute_all_decision_learning_helper(next_literal, true, context, on_analysis_step);
+    }
+}
+
+impl ResolutionConflictAnalyser {
     // computes the learned clause containing only decision literals and stores it in
     // 'analysis_result'
     #[allow(dead_code)]
@@ -259,7 +326,7 @@ impl ResolutionConflictAnalyser {
         is_extracting_core: bool,
         context: &mut ConflictAnalysisContext,
     ) {
-        self.compute_all_decision_learning_helper(None, is_extracting_core, context, |_| {});
+        self.compute_all_decision_learning_helper(None, is_extracting_core, context, &mut |_| {});
     }
 
     // the helper is used to facilitate usage when extracting the clausal core
@@ -269,7 +336,7 @@ impl ResolutionConflictAnalyser {
         mut next_literal: Option<Literal>,
         is_extracting_core: bool,
         context: &mut ConflictAnalysisContext,
-        mut on_analysis_step: impl FnMut(AnalysisStep),
+        on_analysis_step: &mut dyn FnMut(AnalysisStep),
     ) {
         self.seen.resize(
             context
@@ -295,9 +362,9 @@ impl ResolutionConflictAnalyser {
             // Note that the 'next_literal' is given as input.
             //  If it is none, it is none in the first iteration only
             let clause_reference = if let Some(propagated_literal) = next_literal {
-                context.get_propagation_clause_reference(propagated_literal, &mut on_analysis_step)
+                context.get_propagation_clause_reference(propagated_literal, on_analysis_step)
             } else {
-                context.get_conflict_reason_clause_reference(&mut on_analysis_step)
+                context.get_conflict_reason_clause_reference(on_analysis_step)
             };
             context
                 .learned_clause_manager
@@ -443,83 +510,6 @@ impl ResolutionConflictAnalyser {
             self.debug_check_conflict_analysis_result(is_extracting_core, context)
         );
         // the return value is stored in the input 'analysis_result'
-    }
-
-    pub(crate) fn get_conflict_reasons(
-        &mut self,
-        context: &mut ConflictAnalysisContext,
-        on_analysis_step: impl FnMut(AnalysisStep),
-    ) {
-        let next_literal = if context.solver_state.is_infeasible_under_assumptions() {
-            Some(!context.solver_state.get_violated_assumption())
-        } else {
-            None
-        };
-        self.compute_all_decision_learning_helper(next_literal, true, context, on_analysis_step);
-    }
-
-    pub(crate) fn compute_clausal_core(
-        &mut self,
-        context: &mut ConflictAnalysisContext,
-    ) -> CoreExtractionResult {
-        pumpkin_assert_simple!(self.debug_check_core_extraction(context));
-
-        if context.solver_state.is_infeasible() {
-            return CoreExtractionResult::Core(vec![]);
-        }
-
-        let violated_assumption = context.solver_state.get_violated_assumption();
-
-        // we consider three cases:
-        //  1. The assumption is falsified at the root level
-        //  2. The assumption is inconsistent with other assumptions, e.g., x and !x given as
-        //     assumptions
-        //  3. Standard case
-
-        // Case one: the assumption is falsified at the root level
-        if context
-            .assignments_propositional
-            .is_literal_root_assignment(violated_assumption)
-        {
-            CoreExtractionResult::Core(vec![violated_assumption])
-        }
-        // Case two: the assumption is inconsistent with other assumptions (i.e. the assumptions
-        // contain both literal 'x' and '!x')
-        //
-        // We return the literal which has conflicting assumptions
-        else if !context
-            .assignments_propositional
-            .is_literal_propagated(violated_assumption)
-        {
-            CoreExtractionResult::ConflictingAssumption(violated_assumption)
-        }
-        // Case three: the standard case - proceed with core extraction
-        //
-        // Performs resolution on all implied assumptions until only decision assumptions are left.
-        // The violating assumption is used as the starting point at this point, any reason
-        // clause encountered will contains only assumptions, but some assumptions might be
-        // implied.
-        //
-        // This corresponds to the all-decision CDCL learning scheme
-        else {
-            self.compute_all_decision_learning_helper(
-                Some(!violated_assumption),
-                true,
-                context,
-                |_| {},
-            );
-            self.analysis_result
-                .learned_literals
-                .push(!violated_assumption);
-            pumpkin_assert_moderate!(self.debug_check_clausal_core(violated_assumption, context));
-            CoreExtractionResult::Core(
-                self.analysis_result
-                    .learned_literals
-                    .iter()
-                    .map(|negated_assumption| !(*negated_assumption))
-                    .collect(),
-            )
-        }
     }
 
     /// In [`ResolutionConflictAnalyser::compute_1uip`], [`Literal`]s are examined in reverse

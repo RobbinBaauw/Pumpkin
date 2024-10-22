@@ -66,7 +66,7 @@ impl ConflictAnalysisContext<'_> {
     pub(crate) fn get_propagation_clause_reference(
         &mut self,
         propagated_literal: Literal,
-        on_analysis_step: &mut impl FnMut(AnalysisStep),
+        on_analysis_step: &mut dyn FnMut(AnalysisStep),
     ) -> ClauseReference {
         pumpkin_assert_moderate!(
             !self
@@ -118,7 +118,7 @@ impl ConflictAnalysisContext<'_> {
     /// Note that the solver will panic in case the solver is not in conflicting state.
     pub(crate) fn get_conflict_reason_clause_reference(
         &mut self,
-        on_analysis_step: &mut impl FnMut(AnalysisStep),
+        on_analysis_step: &mut dyn FnMut(AnalysisStep),
     ) -> ClauseReference {
         match self.solver_state.get_conflict_info() {
             StoredConflictInfo::VirtualBinaryClause { lit1, lit2 } => self
@@ -194,7 +194,7 @@ impl ConflictAnalysisContext<'_> {
         &mut self,
         propagated_literal: Literal,
         reason_ref: ReasonRef,
-        on_analysis_step: &mut impl FnMut(AnalysisStep),
+        on_analysis_step: &mut dyn FnMut(AnalysisStep),
     ) -> ClauseReference {
         let propagation_context =
             PropagationContext::new(self.assignments_integer, self.assignments_propositional);

@@ -229,7 +229,7 @@ impl RpEngine {
         let mut reasons = Vec::new();
 
         self.solver
-            .get_conflict_reasons(&mut DummyBrancher, |step| match step {
+            .get_conflict_reasons(&mut DummyBrancher, &mut |step| match step {
                 AnalysisStep::AllocatedClause(reference) => {
                     if let Some(handle) = self.rp_allocated_clauses.get(&reference) {
                         reasons.push(ConflictReason::Clause(*handle));

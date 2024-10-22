@@ -4,8 +4,12 @@ mod conflict_analysis_context;
 mod recursive_minimisation;
 mod resolution_conflict_analyser;
 mod semantic_minimiser;
+mod conflict_analyser;
+mod intsat_conflict_analyser;
 
 pub(crate) use conflict_analysis_context::ConflictAnalysisContext;
 pub(crate) use recursive_minimisation::*;
 pub(crate) use resolution_conflict_analyser::*;
 pub(crate) use semantic_minimiser::*;
+pub(crate) use conflict_analyser::*;
+pub(crate) use intsat_conflict_analyser::*;
