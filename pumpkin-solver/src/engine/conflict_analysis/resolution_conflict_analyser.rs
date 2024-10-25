@@ -15,48 +15,9 @@ use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
 use std::collections::HashSet;
-use std::hash::{BuildHasherDefault, Hasher};
 use std::slice::Iter;
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::branching::Brancher;
-
-pub struct FnvHasher(u64);
-
-impl Default for FnvHasher {
-    #[inline]
-    fn default() -> FnvHasher {
-        FnvHasher(0xcbf29ce484222325)
-    }
-}
-
-impl FnvHasher {
-    #[inline]
-    pub fn with_key(key: u64) -> FnvHasher {
-        FnvHasher(key)
-    }
-}
-
-impl Hasher for FnvHasher {
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        let FnvHasher(mut hash) = *self;
-
-        for byte in bytes.iter() {
-            hash = hash ^ (*byte as u64);
-            hash = hash.wrapping_mul(0x100000001b3);
-        }
-
-        *self = FnvHasher(hash);
-    }
-}
-
-pub type FnvBuildHasher = BuildHasherDefault<FnvHasher>;
-pub type FnvHashSet<T> = HashSet<T, FnvBuildHasher>;
 
 #[derive(Clone, Default, Debug)]
 /// The outcome of clause learning.
