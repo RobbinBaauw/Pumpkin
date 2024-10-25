@@ -15,9 +15,48 @@ use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
 use std::collections::HashSet;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::slice::Iter;
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::branching::Brancher;
+
+pub struct FnvHasher(u64);
+
+impl Default for FnvHasher {
+    #[inline]
+    fn default() -> FnvHasher {
+        FnvHasher(0xcbf29ce484222325)
+    }
+}
+
+impl FnvHasher {
+    #[inline]
+    pub fn with_key(key: u64) -> FnvHasher {
+        FnvHasher(key)
+    }
+}
+
+impl Hasher for FnvHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let FnvHasher(mut hash) = *self;
+
+        for byte in bytes.iter() {
+            hash = hash ^ (*byte as u64);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+
+        *self = FnvHasher(hash);
+    }
+}
+
+pub type FnvBuildHasher = BuildHasherDefault<FnvHasher>;
+pub type FnvHashSet<T> = HashSet<T, FnvBuildHasher>;
 
 #[derive(Clone, Default, Debug)]
 /// The outcome of clause learning.
@@ -61,7 +100,7 @@ impl LearnedClause {
             highest_decision_level: 0,
             literal_highest_decision_level: None,
 
-            literals: HashSet::new(),
+            literals: HashSet::default(),
         }
     }
 
@@ -76,16 +115,17 @@ impl LearnedClause {
     fn merge_with_literals(&mut self, assignments_propositional: &AssignmentsPropositional,
                            brancher: &mut dyn Brancher, variable_literal_mappings: &VariableLiteralMappings,
                            new_literals: Iter<Literal>, cancel_literal: Option<Literal>) {
-
         new_literals.for_each(|literal| {
             let is_root_assignment = assignments_propositional.is_literal_root_assignment(*literal);
-            if is_root_assignment { return; }
+            let will_be_cancelled = cancel_literal.is_some() && *literal == cancel_literal.unwrap();
 
-            if cancel_literal.is_some() && *literal == cancel_literal.unwrap() { return; }
+            if is_root_assignment || will_be_cancelled {
+                return;
+            }
 
             brancher.on_appearance_in_conflict_literal(*literal);
             if let Some(reason_domain) = variable_literal_mappings.get_domain_literal(*literal) {
-               brancher.on_appearance_in_conflict_integer(reason_domain);
+                brancher.on_appearance_in_conflict_integer(reason_domain);
             }
 
             let _ = self.literals.insert(*literal);
@@ -141,13 +181,6 @@ impl ResolutionConflictAnalyser {
         &mut self,
         context: &mut ConflictAnalysisContext,
     ) -> ConflictAnalysisResult {
-        self.seen.resize(
-            context
-                .assignments_propositional
-                .num_propositional_variables() as usize,
-            false,
-        );
-
         let start_index = context.assignments_propositional.num_trail_entries();
 
         let decision_level = context.assignments_propositional.get_decision_level();
@@ -219,8 +252,9 @@ impl ResolutionConflictAnalyser {
 
         let mut learned_literals = Vec::from_iter(learned_clause.literals);
 
-        // Correct l_top index (for some reason required?)
         assert_eq!(learned_clause.literals_in_decision_level.len(), 1);
+
+        // Make sure the first index contains the propagating literal and the second one is the one with the highest decision level
         let l_top = learned_clause.literals_in_decision_level.iter().nth(0).unwrap();
         let l_top_index = learned_literals.iter().position(|literal| literal == l_top).unwrap();
         learned_literals[l_top_index] = learned_literals[0];
@@ -230,6 +264,12 @@ impl ResolutionConflictAnalyser {
             let l_highest_index = learned_literals.iter().position(|literal| literal == &l_highest).unwrap();
             learned_literals[l_highest_index] = learned_literals[1];
             learned_literals[1] = l_highest;
+        }
+
+        if learned_literals.len() > 2 {
+            learned_literals[2..].sort_by(|x, x1| {
+                x.to_u32().cmp(&x1.to_u32())
+            });
         }
 
         let backjump_level = if learned_clause.highest_decision_level > 0 { learned_clause.highest_decision_level } else { decision_level - 1};
