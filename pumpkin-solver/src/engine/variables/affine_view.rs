@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use enumset::EnumSet;
 
-use super::TransformableVariable;
+use super::{FlattenedVariable, TransformableVariable};
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::predicates::predicate::Predicate;
 use crate::engine::predicates::predicate_constructor::PredicateConstructor;
@@ -162,6 +162,11 @@ where
         } else {
             self.inner.unpack_event(event)
         }
+    }
+
+    fn flatten(&self) -> FlattenedVariable {
+        let FlattenedVariable { id, scale, offset } = self.inner.flatten();
+        FlattenedVariable::new(id, scale * self.scale, offset * self.scale + self.offset)
     }
 }
 

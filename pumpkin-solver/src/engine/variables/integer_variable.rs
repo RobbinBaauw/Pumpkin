@@ -1,6 +1,6 @@
 use enumset::EnumSet;
 
-use super::TransformableVariable;
+use super::{FlattenedVariable, TransformableVariable};
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::predicates::predicate::Predicate;
 use crate::engine::predicates::predicate_constructor::PredicateConstructor;
@@ -66,4 +66,7 @@ pub trait IntegerVariable:
 
     /// Decode a domain event for this variable.
     fn unpack_event(&self, event: OpaqueDomainEvent) -> IntDomainEvent;
+
+    // TODO
+    fn flatten(&self) -> FlattenedVariable;
 }

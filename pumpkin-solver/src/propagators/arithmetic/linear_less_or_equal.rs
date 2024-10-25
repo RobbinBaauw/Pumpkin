@@ -1,12 +1,13 @@
-use crate::basic_types::PropagationStatusCP;
+use itertools::Itertools;
 use crate::basic_types::PropositionalConjunction;
+use crate::basic_types::PropagationStatusCP;
 use crate::engine::cp::propagation::ReadDomains;
 use crate::engine::domain_events::DomainEvents;
 use crate::engine::propagation::LocalId;
 use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
-use crate::engine::variables::IntegerVariable;
+use crate::engine::variables::{FlattenedVariable, IntegerVariable};
 use crate::predicate;
 
 /// Propagator for the constraint `reif => \sum x_i <= c`.
@@ -54,6 +55,11 @@ where
 
     fn debug_propagate_from_scratch(&self, context: PropagationContextMut) -> PropagationStatusCP {
         perform_propagation(context, &self.x, self.c)
+    }
+
+    fn get_linear_constraint(&self) -> Option<(Vec<FlattenedVariable>, i32)> {
+        let flat_vars = self.x.iter().map(|var| var.flatten()).collect_vec();
+        Some((flat_vars, self.c))
     }
 }
 

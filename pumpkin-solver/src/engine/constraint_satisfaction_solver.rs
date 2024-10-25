@@ -16,7 +16,6 @@ use super::clause_allocators::ClauseAllocatorInterface;
 use super::clause_allocators::ClauseInterface;
 use super::conflict_analysis::{AnalysisStep, ConflictAnalyser, IntSatConflictAnalyser};
 use super::conflict_analysis::ConflictAnalysisResult;
-use super::conflict_analysis::ResolutionConflictAnalyser;
 use super::propagation::store::PropagatorStore;
 use super::solver_statistics::SolverStatistics;
 use super::termination::TerminationCondition;

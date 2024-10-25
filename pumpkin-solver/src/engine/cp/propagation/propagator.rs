@@ -11,6 +11,7 @@ use crate::engine::propagation::propagation_context::PropagationContextMut;
 use crate::engine::BooleanDomainEvent;
 #[cfg(doc)]
 use crate::engine::ConstraintSatisfactionSolver;
+use crate::engine::variables::FlattenedVariable;
 use crate::predicates::PropositionalConjunction;
 #[cfg(doc)]
 use crate::propagators::clausal::BasicClausalPropagator;
@@ -178,6 +179,10 @@ pub trait Propagator {
     ///
     /// It is recommended to create a struct through the [`create_statistics_struct!`] macro!
     fn log_statistics(&self, _statistic_logger: StatisticLogger) {}
+
+    fn get_linear_constraint(&self) -> Option<(Vec<FlattenedVariable>, i32)> {
+        None
+    }
 }
 
 /// Indicator of what to do when a propagator is notified.
