@@ -32,6 +32,16 @@ impl<T> Trail<T> {
         self.current_decision_level
     }
 
+    pub(crate) fn get_decision_level_at_idx(&self, idx: usize) -> usize {
+        for i in 0..self.trail_delimiter.len() {
+            if idx < self.trail_delimiter[i] {
+                return i
+            }
+        }
+
+        unreachable!("We should have checked all decision levels here")
+    }
+
     pub(crate) fn synchronise(&mut self, new_decision_level: usize) -> Rev<Drain<T>> {
         pumpkin_assert_simple!(new_decision_level < self.current_decision_level);
 

@@ -1,11 +1,10 @@
-use super::{ConflictAnalyser, ConflictAnalysisContext};
+use super::{ConflictAnalyser, ConflictAnalysisContext, ConflictAnalysisResult, LearnedClause};
 use super::RecursiveMinimiser;
 use super::SemanticMinimiser;
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::ClauseReference;
 use crate::basic_types::KeyedVec;
 use crate::engine::clause_allocators::ClauseInterface;
-use crate::engine::conflict_analysis::conflict_analyser::ConflictAnalysisResult;
 use crate::engine::constraint_satisfaction_solver::CoreExtractionResult;
 use crate::engine::propagation::PropagatorId;
 use crate::engine::variables::Literal;
@@ -21,7 +20,7 @@ use crate::pumpkin_assert_simple;
 pub(crate) struct ResolutionConflictAnalyser {
     // data structures used for conflict analysis
     seen: KeyedVec<PropositionalVariable, bool>,
-    analysis_result: ConflictAnalysisResult,
+    analysis_result: LearnedClause,
 
     /// A clause minimiser which uses a recursive minimisation approach to remove dominated
     /// literals (see [`RecursiveMinimiser`]).
@@ -41,9 +40,9 @@ impl ConflictAnalyser for ResolutionConflictAnalyser {
     ///
     /// The learned clause which is created by
     /// this method contains a single variable at the current decision level (stored at index 0
-    /// of [`ConflictAnalysisResult::learned_literals`]); the variable with the second highest
-    /// decision level is stored at index 1 in [`ConflictAnalysisResult::learned_literals`] and its
-    /// decision level is (redundantly) stored in [`ConflictAnalysisResult::backjump_level`], which
+    /// of [`ConstraintConflictAnalysisResult::learned_literals`]); the variable with the second highest
+    /// decision level is stored at index 1 in [`ConstraintConflictAnalysisResult::learned_literals`] and its
+    /// decision level is (redundantly) stored in [`ConstraintConflictAnalysisResult::backjump_level`], which
     /// is used when backtracking in ([`ConstraintSatisfactionSolver`]).
     ///
     /// # Bibliography
@@ -179,7 +178,7 @@ impl ConflictAnalyser for ResolutionConflictAnalyser {
 
                     self.analysis_result.learned_literals.clear();
 
-                    return self.analysis_result.clone();
+                    return ConflictAnalysisResult::CLAUSE(self.analysis_result.clone());
                 }
 
                 next_trail_index -= 1;
@@ -238,8 +237,9 @@ impl ConflictAnalyser for ResolutionConflictAnalyser {
             .clean_up_explanation_clauses(context.clause_allocator);
 
         pumpkin_assert_moderate!(self.debug_check_conflict_analysis_result(false, context));
+
         // the return value is stored in the input 'analysis_result'
-        self.analysis_result.clone()
+        ConflictAnalysisResult::CLAUSE(self.analysis_result.clone())
     }
 
     fn compute_clausal_core(&mut self, context: &mut ConflictAnalysisContext) -> CoreExtractionResult {

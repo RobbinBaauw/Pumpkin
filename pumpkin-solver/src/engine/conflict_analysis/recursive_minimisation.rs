@@ -1,5 +1,4 @@
-use super::ConflictAnalysisContext;
-use super::ConflictAnalysisResult;
+use super::{ConflictAnalysisContext, LearnedClause};
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::HashMap;
 use crate::basic_types::HashSet;
@@ -68,7 +67,7 @@ impl RecursiveMinimiser {
     pub(crate) fn remove_dominated_literals(
         &mut self,
         context: &mut ConflictAnalysisContext,
-        analysis_result: &mut ConflictAnalysisResult,
+        analysis_result: &mut LearnedClause,
     ) {
         let num_literals_before_minimisation = analysis_result.learned_literals.len();
 
@@ -128,7 +127,7 @@ impl RecursiveMinimiser {
     fn initialise_minimisation_data_structures(
         &mut self,
         assignments: &AssignmentsPropositional,
-        analysis_result: &mut ConflictAnalysisResult,
+        analysis_result: &mut LearnedClause,
     ) {
         pumpkin_assert_simple!(self.current_depth == 0);
 

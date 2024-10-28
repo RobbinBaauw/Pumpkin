@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use itertools::Itertools;
 use crate::basic_types::StoredConflictInfo;
-use crate::engine::conflict_analysis::{AnalysisStep, ConflictAnalyser, ConflictAnalysisContext, ConflictAnalysisResult, ResolutionConflictAnalyser};
+use crate::engine::conflict_analysis::{AnalysisStep, ConflictAnalyser, ConflictAnalysisContext, ConflictAnalysisResult, LearnedLinearConstraint, ResolutionConflictAnalyser};
 use crate::engine::constraint_satisfaction_solver::CoreExtractionResult;
 use crate::engine::propagation::PropagatorId;
 use crate::engine::propagation::store::PropagatorStore;
+use crate::propagators::linear_less_or_equal::{can_propagate, LinearLessOrEqualPropagator};
+use crate::variables::{DomainId, TransformableVariable};
 
 #[derive(Default, Debug)]
 pub(crate) struct IntSatConflictAnalyser {
@@ -36,6 +38,8 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
             _ => todo!("unsupported conflict"),
         };
 
+        let current_decision_level = context.assignments_integer.get_decision_level();
+
         let start_index = context.assignments_integer.num_trail_entries();
 
         for trail_index in (0..start_index).rev() {
@@ -43,20 +47,30 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
             let next_literal_id = next_literal.predicate.get_domain();
             let next_literal_reason = next_literal.reason.unwrap();
 
+            // If we have gone as far back as we could within this decision level without being able to propagate
+            // go to the fallback
+            let next_literal_decision_level = context.assignments_integer.get_decision_level_at_idx(trail_index);
+            if next_literal_decision_level < current_decision_level { break; }
+
+            // Find the variable in the current conflicting constraint corresponding to this trail entry
+            // If it does not exist, it means this trail entry is not relevant
             let conflicting_var = conflicting_constraint.0.iter().find(|(id, _)| *id == next_literal_id.id);
             if conflicting_var.is_none() { continue; }
 
             let (_, conflicting_scale) = conflicting_var.unwrap();
 
+            // Find the scale of the variable of its reason
             let propagator = context.reason_store.get_propagator(next_literal_reason);
             let prop_constraint = prop_to_linear_constraint(context.propagator_store, propagator);
 
             let (_, prop_scale) = prop_constraint.0.iter().find(|(id, _)| *id == next_literal_id.id).unwrap();
 
+            // Compute the multiplier which to multiply both sides with
             let lcm_val = lcm(*conflicting_scale, *prop_scale);
             let mult_conf = lcm_val / conflicting_scale;
             let mult_prop = -lcm_val / prop_scale;
 
+            // Multiply the conflicting & propagating constraint
             let mut new_lhs: HashMap<_, _> = conflicting_constraint.0.iter().map(|(id, scale)| {
                 (id, mult_conf * *scale)
             }).collect();
@@ -68,11 +82,31 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
                 *curr_scale += mult_prop * scale;
             });
 
+            let new_lhs_vec = new_lhs.iter().map(|(id, scale)| {
+                DomainId::new(**id).scaled(*scale)
+            }).collect_vec();
+
             let new_rhs = conflicting_constraint.1 * mult_conf + prop_constraint.1 * mult_prop;
+
+            // TODO check if this can propagate at a height
+            let cloned_assignments = &mut context.assignments_integer.clone();
+            for backjump_level in (0..current_decision_level).rev() {
+                let _ = cloned_assignments.synchronise(backjump_level, false, 0);
+
+                let can_propagate_at_level = can_propagate(cloned_assignments, &new_lhs_vec, new_rhs);
+                if can_propagate_at_level {
+                    return ConflictAnalysisResult::LINEAR(LearnedLinearConstraint {
+                        learned_constraint: Box::new(LinearLessOrEqualPropagator::new(new_lhs_vec.into_boxed_slice(), new_rhs)),
+                        backjump_level,
+                    })
+                }
+            }
 
             println!("{:?} <= {new_rhs}", new_lhs);
             println!("OEWEE");
         }
+
+        println!("FALLBACK");
 
         // Perform resolution as backup
         self.resolution_analyser.conflict_analysis(context)

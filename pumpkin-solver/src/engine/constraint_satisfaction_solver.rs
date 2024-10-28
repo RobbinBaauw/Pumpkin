@@ -14,8 +14,7 @@ use rand::SeedableRng;
 
 use super::clause_allocators::ClauseAllocatorInterface;
 use super::clause_allocators::ClauseInterface;
-use super::conflict_analysis::{AnalysisStep, ConflictAnalyser, IntSatConflictAnalyser};
-use super::conflict_analysis::ConflictAnalysisResult;
+use super::conflict_analysis::{AnalysisStep, ConflictAnalyser, ConflictAnalysisResult, IntSatConflictAnalyser, LearnedClause, LearnedLinearConstraint};
 use super::propagation::store::PropagatorStore;
 use super::solver_statistics::SolverStatistics;
 use super::termination::TerminationCondition;
@@ -78,6 +77,7 @@ use crate::statistics::statistic_logging::should_log_statistics;
 use crate::statistics::Statistic;
 use crate::variable_names::VariableNames;
 use crate::DefaultBrancher;
+use crate::engine::conflict_analysis::ConflictAnalysisResult::{CLAUSE, LINEAR};
 #[cfg(doc)]
 use crate::Solver;
 
@@ -406,10 +406,15 @@ impl ConstraintSatisfactionSolver {
         pumpkin_assert_simple!(self.is_conflicting());
 
         let result = self.compute_learned_clause(&mut DummyBrancher);
+        let learned_clause = match result {
+            CLAUSE(clause) => clause,
+            LINEAR(_) => todo!(),
+        };
+
         let _ = self
             .internal_parameters
             .proof_log
-            .log_learned_clause(result.learned_literals);
+            .log_learned_clause(learned_clause.learned_literals);
     }
 
     // fn debug_check_consistency(&self, cp_data_structures: &CPEngineDataStructures) -> bool {
@@ -1137,7 +1142,7 @@ impl ConstraintSatisfactionSolver {
 
         self.analysis_result = self.compute_learned_clause(brancher);
 
-        self.process_learned_clause(brancher);
+        self.process_learned_constraint(brancher);
 
         self.state.declare_solving();
     }
@@ -1164,15 +1169,28 @@ impl ConstraintSatisfactionSolver {
             .conflict_analysis(&mut conflict_analysis_context)
     }
 
-    fn process_learned_clause(&mut self, brancher: &mut impl Brancher) {
+    fn process_learned_constraint(&mut self, brancher: &mut impl Brancher) {
+        match self.analysis_result.clone() {
+            CLAUSE(clause) => self.process_learned_clause(brancher, clause),
+            LINEAR(constraint) => self.process_learned_linear_constraint(brancher, constraint),
+        };
+    }
+
+    fn process_learned_linear_constraint(&mut self, brancher: &mut impl Brancher, linear_constraint: LearnedLinearConstraint) {
+        self.backtrack(linear_constraint.backjump_level, brancher);
+
+        self.add_propagator(linear_constraint.learned_constraint, None).expect("TODO: panic message");
+    }
+
+    fn process_learned_clause(&mut self, brancher: &mut impl Brancher, clause: LearnedClause) {
         let proof_step_id = self
             .internal_parameters
             .proof_log
-            .log_learned_clause(self.analysis_result.learned_literals.iter().copied())
+            .log_learned_clause(clause.learned_literals.iter().copied())
             .expect("Failed to write proof log");
 
         // unit clauses are treated in a special way: they are added as root level decisions
-        if self.analysis_result.learned_literals.len() == 1 {
+        if clause.learned_literals.len() == 1 {
             // important to notify about the conflict _before_ backtracking removes literals from
             // the trail
             self.restart_strategy
@@ -1180,7 +1198,7 @@ impl ConstraintSatisfactionSolver {
 
             self.backtrack(0, brancher);
 
-            let unit_clause = self.analysis_result.learned_literals[0];
+            let unit_clause = clause.learned_literals[0];
             let _ = self.unit_nogood_step_ids.insert(unit_clause, proof_step_id);
 
             self.assignments_propositional
@@ -1189,12 +1207,12 @@ impl ConstraintSatisfactionSolver {
             self.counters
                 .learned_clause_statistics
                 .num_unit_clauses_learned +=
-                (self.analysis_result.learned_literals.len() == 1) as u64;
+                (clause.learned_literals.len() == 1) as u64;
         } else {
             self.counters
                 .learned_clause_statistics
                 .average_learned_clause_length
-                .add_term(self.analysis_result.learned_literals.len() as u64);
+                .add_term(clause.learned_literals.len() as u64);
 
             // important to get trail length before the backtrack
             let num_variables_assigned_before_conflict =
@@ -1203,11 +1221,11 @@ impl ConstraintSatisfactionSolver {
             self.counters
                 .learned_clause_statistics
                 .average_backtrack_amount
-                .add_term((self.get_decision_level() - self.analysis_result.backjump_level) as u64);
-            self.backtrack(self.analysis_result.backjump_level, brancher);
+                .add_term((self.get_decision_level() - clause.backjump_level) as u64);
+            self.backtrack(clause.backjump_level, brancher);
 
             let clause_reference = self.learned_clause_manager.add_learned_clause(
-                self.analysis_result.learned_literals.clone(), // todo not ideal with clone
+                clause.learned_literals.clone(), // todo not ideal with clone
                 &mut self.clausal_propagator,
                 &mut self.assignments_propositional,
                 &mut self.clause_allocator,
@@ -1217,7 +1235,7 @@ impl ConstraintSatisfactionSolver {
             self.nogood_step_ids[clause_reference] = Some(proof_step_id);
 
             let lbd = self.learned_clause_manager.compute_lbd_for_literals(
-                &self.analysis_result.learned_literals,
+                &clause.learned_literals,
                 &self.assignments_propositional,
             );
 

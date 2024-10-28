@@ -1,7 +1,6 @@
 use std::cmp;
 
-use super::ConflictAnalysisContext;
-use super::ConflictAnalysisResult;
+use super::{ConflictAnalysisContext, LearnedClause};
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::HashSet;
 use crate::basic_types::KeyedVec;
@@ -58,7 +57,7 @@ impl SemanticMinimiser {
     pub(crate) fn minimise(
         &mut self,
         context: &mut ConflictAnalysisContext,
-        analysis_result: &mut ConflictAnalysisResult,
+        analysis_result: &mut LearnedClause,
     ) {
         let number_of_literals_before_semantic_minimisation =
             analysis_result.learned_literals.len();

@@ -47,6 +47,10 @@ impl AssignmentsInteger {
         self.trail.get_decision_level()
     }
 
+    pub fn get_decision_level_at_idx(&self, trail_index: usize) -> usize {
+        self.trail.get_decision_level_at_idx(trail_index)
+    }
+
     /// Returns the number of defined [`DomainId`]s.
     pub fn num_domains(&self) -> u32 {
         self.domains.len() as u32

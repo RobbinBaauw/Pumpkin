@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use crate::basic_types::PropositionalConjunction;
 use crate::basic_types::PropagationStatusCP;
+use crate::engine::AssignmentsInteger;
 use crate::engine::cp::propagation::ReadDomains;
 use crate::engine::domain_events::DomainEvents;
 use crate::engine::propagation::LocalId;
@@ -61,6 +62,23 @@ where
         let flat_vars = self.x.iter().map(|var| var.flatten()).collect_vec();
         Some((flat_vars, self.c))
     }
+}
+
+pub(crate) fn can_propagate<Var: IntegerVariable>(assignments_integer: &AssignmentsInteger,
+                                       x: &[Var],
+                                       c: i32,) -> bool {
+    let lb_lhs = x.iter().map(|var| var.lower_bound(assignments_integer)).sum::<i32>();
+    if c < lb_lhs { return false; }
+
+    for x_i in x.iter() {
+        let bound = c - (lb_lhs - x_i.lower_bound(assignments_integer));
+
+        if x_i.upper_bound(assignments_integer) > bound {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn perform_propagation<Var: IntegerVariable>(
