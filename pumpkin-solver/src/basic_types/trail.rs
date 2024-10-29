@@ -39,7 +39,7 @@ impl<T> Trail<T> {
             }
         }
 
-        unreachable!("We should have checked all decision levels here")
+        self.trail_delimiter.len()
     }
 
     pub(crate) fn synchronise(&mut self, new_decision_level: usize) -> Rev<Drain<T>> {

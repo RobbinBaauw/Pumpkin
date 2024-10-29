@@ -1179,7 +1179,25 @@ impl ConstraintSatisfactionSolver {
     fn process_learned_linear_constraint(&mut self, brancher: &mut impl Brancher, linear_constraint: LearnedLinearConstraint) {
         self.backtrack(linear_constraint.backjump_level, brancher);
 
-        self.add_propagator(linear_constraint.learned_constraint, None).expect("TODO: panic message");
+        let new_propagator_id = self.cp_propagators.alloc(linear_constraint.learned_constraint, None);
+        let new_propagator = &mut self.cp_propagators[new_propagator_id];
+
+        let mut initialisation_context = PropagatorInitialisationContext::new(
+            &mut self.watch_list_cp,
+            &mut self.watch_list_propositional,
+            new_propagator_id,
+            &self.assignments_integer,
+            &self.assignments_propositional,
+        );
+
+        let initialisation_status = new_propagator.initialise_at_root(&mut initialisation_context);
+        if initialisation_status.is_err() {
+            println!("ERR");
+        } else {
+            self.propagator_queue
+                .enqueue_propagator(new_propagator_id, new_propagator.priority());
+        }
+
     }
 
     fn process_learned_clause(&mut self, brancher: &mut impl Brancher, clause: LearnedClause) {
@@ -1682,7 +1700,7 @@ impl ConstraintSatisfactionSolver {
     /// `false` will be returned again.
     pub fn add_propagator(
         &mut self,
-        propagator_to_add: impl Propagator + 'static,
+        propagator_to_add: Box<dyn Propagator>,
         tag: Option<NonZero<u32>>,
     ) -> Result<(), ConstraintOperationError> {
         if self.state.is_inconsistent() {
@@ -1696,7 +1714,7 @@ impl ConstraintSatisfactionSolver {
              but this can easily be changed if there is a good reason."
         );
 
-        let new_propagator_id = self.cp_propagators.alloc(Box::new(propagator_to_add), tag);
+        let new_propagator_id = self.cp_propagators.alloc(propagator_to_add, tag);
 
         let new_propagator = &mut self.cp_propagators[new_propagator_id];
 

@@ -1,9 +1,9 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use crate::engine::conflict_analysis::{AnalysisStep, ConflictAnalysisContext};
 use crate::engine::conflict_analysis::ConflictAnalysisResult::CLAUSE;
 use crate::engine::constraint_satisfaction_solver::CoreExtractionResult;
-use crate::engine::propagation::Propagator;
-use crate::variables::Literal;
+use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
+use crate::variables::{AffineView, DomainId, Literal};
 
 #[derive(Clone, Default, Debug)]
 /// The outcome of clause learning.
@@ -15,25 +15,14 @@ pub(crate) struct LearnedClause {
     pub backjump_level: usize,
 }
 
+#[derive(Clone, Debug)]
 /// The outcome of clause learning.
 pub(crate) struct LearnedLinearConstraint {
     /// The new learned clause with the propagating literal after backjumping at index 0 and the
     /// literal with the next highest decision level at index 1.
-    pub learned_constraint: Box<dyn Propagator>,
+    pub learned_constraint: Box<LinearLessOrEqualPropagator<AffineView<DomainId>>>,
     /// The decision level to backtrack to.
     pub backjump_level: usize,
-}
-
-impl Clone for LearnedLinearConstraint {
-    fn clone(&self) -> Self {
-        todo!()
-    }
-}
-
-impl Debug for LearnedLinearConstraint {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
 }
 
 #[derive(Clone, Debug)]

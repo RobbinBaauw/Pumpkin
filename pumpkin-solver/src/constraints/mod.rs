@@ -91,9 +91,9 @@ where
         tag: Option<NonZero<u32>>,
     ) -> Result<(), ConstraintOperationError> {
         if let Some(tag) = tag {
-            solver.add_tagged_propagator(self, tag)
+            solver.add_tagged_propagator(Box::new(self), tag)
         } else {
-            solver.add_propagator(self)
+            solver.add_propagator(Box::new(self))
         }
     }
 
@@ -104,9 +104,9 @@ where
         tag: Option<NonZero<u32>>,
     ) -> Result<(), ConstraintOperationError> {
         if let Some(tag) = tag {
-            solver.add_tagged_propagator(ReifiedPropagator::new(self, reification_literal), tag)
+            solver.add_tagged_propagator(Box::new(ReifiedPropagator::new(self, reification_literal)), tag)
         } else {
-            solver.add_propagator(ReifiedPropagator::new(self, reification_literal))
+            solver.add_propagator(Box::new(ReifiedPropagator::new(self, reification_literal)))
         }
     }
 }
