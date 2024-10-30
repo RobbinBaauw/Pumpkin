@@ -1,23 +1,26 @@
+use std::collections::HashSet;
+use std::slice::Iter;
+
 use super::ConflictAnalysisContext;
 use super::RecursiveMinimiser;
 use super::SemanticMinimiser;
-use crate::basic_types::KeyedVec;
+use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::ClauseReference;
-use crate::engine::clause_allocators::{ClauseAllocatorInterface, ClauseInterface};
+use crate::basic_types::KeyedVec;
+use crate::branching::Brancher;
+use crate::engine::clause_allocators::ClauseAllocatorInterface;
+use crate::engine::clause_allocators::ClauseInterface;
 use crate::engine::constraint_satisfaction_solver::CoreExtractionResult;
 use crate::engine::propagation::PropagatorId;
 use crate::engine::variables::Literal;
 use crate::engine::variables::PropositionalVariable;
+use crate::engine::AssignmentsPropositional;
 #[cfg(doc)]
 use crate::engine::ConstraintSatisfactionSolver;
-use crate::engine::{AssignmentsPropositional, VariableLiteralMappings};
+use crate::engine::VariableLiteralMappings;
 use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
-use std::collections::HashSet;
-use std::slice::Iter;
-use crate::basic_types::moving_averages::MovingAverage;
-use crate::branching::Brancher;
 
 #[derive(Clone, Default, Debug)]
 /// The outcome of clause learning.
@@ -30,18 +33,6 @@ pub(crate) struct ConflictAnalysisResult {
 }
 
 #[derive(Default, Debug)]
-pub(crate) struct ResolutionConflictAnalyser {
-    // data structures used for conflict analysis
-    seen: KeyedVec<PropositionalVariable, bool>,
-    analysis_result: ConflictAnalysisResult,
-
-    /// A clause minimiser which uses a recursive minimisation approach to remove dominated
-    /// literals (see [`RecursiveMinimiser`]).
-    recursive_minimiser: RecursiveMinimiser,
-    /// A clause minimiser which uses a semantic minimisation approach (see [`SemanticMinimiser`]).
-    semantic_minimiser: SemanticMinimiser,
-}
-
 struct LearnedClause {
     literals: HashSet<Literal>,
 
@@ -53,73 +44,129 @@ struct LearnedClause {
 }
 
 impl LearnedClause {
-    fn new(decision_level: usize) -> Self {
-        LearnedClause {
-            decision_level,
-            literals_in_decision_level: HashSet::new(),
+    fn to_analysis_result(&self) -> ConflictAnalysisResult {
+        let mut learned_literals = Vec::from_iter(self.literals.clone());
 
-            highest_decision_level: 0,
-            literal_highest_decision_level: None,
+        // Set the 0th index to be the propagating literal
+        let l_top = self.literals_in_decision_level.iter().nth(0).unwrap();
+        let l_top_index = learned_literals
+            .iter()
+            .position(|literal| literal == l_top)
+            .unwrap();
+        learned_literals[l_top_index] = learned_literals[0];
+        learned_literals[0] = *l_top;
 
-            literals: HashSet::default(),
+        // Set the 1st index to be the highest decision level literal
+        if let Some(l_highest) = self.literal_highest_decision_level {
+            let l_highest_index = learned_literals
+                .iter()
+                .position(|literal| literal == &l_highest)
+                .unwrap();
+            learned_literals[l_highest_index] = learned_literals[1];
+            learned_literals[1] = l_highest;
+        }
+
+        // Sort the rest of the literals to make the result consistent
+        if learned_literals.len() > 2 {
+            learned_literals[2..].sort_by(|x, x1| x.to_u32().cmp(&x1.to_u32()));
+        }
+
+        let backjump_level = if self.highest_decision_level > 0 {
+            self.highest_decision_level
+        } else {
+            self.decision_level - 1
+        };
+
+        ConflictAnalysisResult {
+            learned_literals,
+            backjump_level,
         }
     }
+}
 
-    fn can_stop(&self) -> bool {
-        self.literals_in_decision_level.len() == 1
-    }
+#[derive(Default, Debug)]
+pub(crate) struct ResolutionConflictAnalyser {
+    // data structures used for conflict analysis
+    seen: KeyedVec<PropositionalVariable, bool>,
+    analysis_result: ConflictAnalysisResult,
+    learned_clause: LearnedClause,
 
-    fn contains(&self, literal: &Literal) -> bool {
-        self.literals.contains(literal)
-    }
+    /// A clause minimiser which uses a recursive minimisation approach to remove dominated
+    /// literals (see [`RecursiveMinimiser`]).
+    recursive_minimiser: RecursiveMinimiser,
+    /// A clause minimiser which uses a semantic minimisation approach (see [`SemanticMinimiser`]).
+    semantic_minimiser: SemanticMinimiser,
+}
 
-    fn merge_with_literals(&mut self, assignments_propositional: &AssignmentsPropositional,
-                           brancher: &mut dyn Brancher, variable_literal_mappings: &VariableLiteralMappings,
-                           new_literals: Iter<Literal>, cancel_literal: Option<Literal>) {
+impl ResolutionConflictAnalyser {
+    fn merge_with_literals(
+        &mut self,
+        assignments_propositional: &AssignmentsPropositional,
+        brancher: &mut dyn Brancher,
+        variable_literal_mappings: &VariableLiteralMappings,
+        new_literals: Iter<Literal>,
+        cancel_literal: Option<Literal>,
+    ) {
         new_literals.for_each(|literal| {
             let is_root_assignment = assignments_propositional.is_literal_root_assignment(*literal);
             let will_be_cancelled = cancel_literal.is_some() && *literal == cancel_literal.unwrap();
+            let already_seen = self.seen[literal.get_propositional_variable()];
 
-            if is_root_assignment || will_be_cancelled {
+            if is_root_assignment || will_be_cancelled || already_seen {
                 return;
             }
+
+            self.seen[literal.get_propositional_variable()] = true;
 
             brancher.on_appearance_in_conflict_literal(*literal);
             if let Some(reason_domain) = variable_literal_mappings.get_domain_literal(*literal) {
                 brancher.on_appearance_in_conflict_integer(reason_domain);
             }
 
-            let _ = self.literals.insert(*literal);
+            let _ = self.learned_clause.literals.insert(*literal);
             self.update_decision_level_count(assignments_propositional, literal, true);
         });
 
         if let Some(literal) = cancel_literal {
-            let _ = self.literals.remove(&literal);
+            let _ = self.learned_clause.literals.remove(&literal);
             self.update_decision_level_count(assignments_propositional, &literal, false);
-            let _ = self.literals.remove(&!literal);
+            let _ = self.learned_clause.literals.remove(&!literal);
             self.update_decision_level_count(assignments_propositional, &!literal, false);
         }
     }
 
-    fn update_decision_level_count(&mut self, assignments_propositional: &AssignmentsPropositional, literal: &Literal, add: bool) {
-        let level = assignments_propositional.get_variable_assignment_level(literal.get_propositional_variable());
+    fn update_decision_level_count(
+        &mut self,
+        assignments_propositional: &AssignmentsPropositional,
+        literal: &Literal,
+        add: bool,
+    ) {
+        let level = assignments_propositional
+            .get_variable_assignment_level(literal.get_propositional_variable());
 
-        if add && self.decision_level > level && level > self.highest_decision_level {
-            self.highest_decision_level = level;
-            self.literal_highest_decision_level = Some(*literal);
+        if add
+            && self.learned_clause.decision_level > level
+            && level > self.learned_clause.highest_decision_level
+        {
+            self.learned_clause.highest_decision_level = level;
+            self.learned_clause.literal_highest_decision_level = Some(*literal);
         }
 
-        if level == self.decision_level {
+        if level == self.learned_clause.decision_level {
             if add {
-                let _ = self.literals_in_decision_level.insert(*literal);
+                let _ = self
+                    .learned_clause
+                    .literals_in_decision_level
+                    .insert(*literal);
             } else {
-                let _ = self.literals_in_decision_level.remove(literal);
+                let _ = self
+                    .learned_clause
+                    .literals_in_decision_level
+                    .remove(literal);
             }
         }
     }
-}
 
-impl ResolutionConflictAnalyser {
     /// Compute the 1-UIP clause based on the current conflict. According to \[1\] a unit
     /// implication point (UIP), "represents an alternative decision assignment at the current
     /// decision level that results in the same conflict" (i.e. no matter what the variable at the
@@ -142,14 +189,29 @@ impl ResolutionConflictAnalyser {
         &mut self,
         context: &mut ConflictAnalysisContext,
     ) -> ConflictAnalysisResult {
+        self.seen.resize(
+            context
+                .assignments_propositional
+                .num_propositional_variables() as usize,
+            false,
+        );
+
         let start_index = context.assignments_propositional.num_trail_entries();
 
         let decision_level = context.assignments_propositional.get_decision_level();
         if context.assignments_propositional.is_at_the_root_level() {
-            return ConflictAnalysisResult { learned_literals: vec![], backjump_level: 0 };
+            return ConflictAnalysisResult {
+                learned_literals: vec![],
+                backjump_level: 0,
+            };
         }
 
-        let mut learned_clause = LearnedClause::new(decision_level);
+        // Reset learned clause
+        self.learned_clause.literals.clear();
+        self.learned_clause.literals_in_decision_level.clear();
+        self.learned_clause.decision_level = decision_level;
+        self.learned_clause.highest_decision_level = 0;
+        self.learned_clause.literal_highest_decision_level = None;
 
         let conflict_reason = context.get_conflict_reason_clause_reference(&mut |_| {});
         let conflict_clause = context.clause_allocator.get_clause(conflict_reason);
@@ -160,8 +222,13 @@ impl ResolutionConflictAnalyser {
             .average_conflict_size
             .add_term(conflict_clause.len() as u64);
 
-        learned_clause.merge_with_literals(context.assignments_propositional, context.brancher, context.variable_literal_mappings,
-                                           conflict_clause.get_literal_slice().iter(), None);
+        self.merge_with_literals(
+            context.assignments_propositional,
+            context.brancher,
+            context.variable_literal_mappings,
+            conflict_clause.get_literal_slice().iter(),
+            None,
+        );
 
         context
             .learned_clause_manager
@@ -171,37 +238,51 @@ impl ResolutionConflictAnalyser {
                 context.clause_allocator,
             );
 
-
-        // Idea: we go back on the trail and perform resolution for each item on the trail that is
         for trail_index in (0..start_index).rev() {
-            if learned_clause.can_stop() {
-                break
+            if self.learned_clause.literals_in_decision_level.len() == 1 {
+                break;
             }
 
-            let next_literal = context.assignments_propositional.get_trail_entry(trail_index);
+            let next_literal = context
+                .assignments_propositional
+                .get_trail_entry(trail_index);
+            self.seen[next_literal.get_propositional_variable()] = false;
 
             pumpkin_assert_moderate!(Self::debug_1uip_conflict_analysis_check_next_literal(
                 Some(next_literal),
                 context
             ));
 
-            if !learned_clause.contains(&!next_literal) {
-                continue
+            if !self.learned_clause.literals.contains(&!next_literal) {
+                continue;
             }
 
-            if context.assignments_propositional.is_literal_decision(next_literal) {
-                learned_clause.merge_with_literals(context.assignments_propositional, context.brancher, context.variable_literal_mappings,
-                                                   vec![!next_literal].iter(), None);
-                break
+            if context
+                .assignments_propositional
+                .is_literal_decision(next_literal)
+            {
+                self.merge_with_literals(
+                    context.assignments_propositional,
+                    context.brancher,
+                    context.variable_literal_mappings,
+                    vec![!next_literal].iter(),
+                    None,
+                );
+                break;
             }
 
-            let propagation_reason = context.get_propagation_clause_reference(next_literal, &mut |_| {});
+            let propagation_reason =
+                context.get_propagation_clause_reference(next_literal, &mut |_| {});
             let propagation_clause = context.clause_allocator.get_clause(propagation_reason);
 
-            learned_clause.merge_with_literals(context.assignments_propositional, context.brancher, context.variable_literal_mappings,
-                                               propagation_clause.get_literal_slice().iter(), Some(next_literal));
+            self.merge_with_literals(
+                context.assignments_propositional,
+                context.brancher,
+                context.variable_literal_mappings,
+                propagation_clause.get_literal_slice().iter(),
+                Some(next_literal),
+            );
 
-            // From original implementation
             context
                 .learned_clause_manager
                 .update_clause_lbd_and_bump_activity(
@@ -211,33 +292,12 @@ impl ResolutionConflictAnalyser {
                 );
         }
 
-        let mut learned_literals = Vec::from_iter(learned_clause.literals);
+        self.analysis_result = self.learned_clause.to_analysis_result();
 
-        assert_eq!(learned_clause.literals_in_decision_level.len(), 1);
-
-        // Make sure the first index contains the propagating literal and the second one is the one with the highest decision level
-        let l_top = learned_clause.literals_in_decision_level.iter().nth(0).unwrap();
-        let l_top_index = learned_literals.iter().position(|literal| literal == l_top).unwrap();
-        learned_literals[l_top_index] = learned_literals[0];
-        learned_literals[0] = *l_top;
-
-        if let Some(l_highest) = learned_clause.literal_highest_decision_level {
-            let l_highest_index = learned_literals.iter().position(|literal| literal == &l_highest).unwrap();
-            learned_literals[l_highest_index] = learned_literals[1];
-            learned_literals[1] = l_highest;
+        for literal in &self.analysis_result.learned_literals {
+            self.seen[literal.get_propositional_variable()] = false;
         }
 
-        if learned_literals.len() > 2 {
-            learned_literals[2..].sort_by(|x, x1| {
-                x.to_u32().cmp(&x1.to_u32())
-            });
-        }
-
-        let backjump_level = if learned_clause.highest_decision_level > 0 { learned_clause.highest_decision_level } else { decision_level - 1};
-
-        self.analysis_result = ConflictAnalysisResult { learned_literals, backjump_level };
-
-        // From original implementation
         if context.internal_parameters.learning_clause_minimisation {
             pumpkin_assert_moderate!(self.debug_check_conflict_analysis_result(false, context));
 
