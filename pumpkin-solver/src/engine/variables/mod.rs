@@ -20,4 +20,4 @@ pub use literal::Literal;
 pub use propositional_variable::PropositionalVariable;
 pub(crate) use propositional_variable_generator_iterator::PropositionalVariableGeneratorIterator;
 pub use transformable_variable::TransformableVariable;
-pub use flattened_variable::FlattenedVariable;
+pub(crate) use flattened_variable::FlattenedVariable;

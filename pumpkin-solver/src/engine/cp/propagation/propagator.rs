@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+use itertools::Itertools;
 use super::PropagatorInitialisationContext;
 #[cfg(doc)]
 use crate::basic_types::Inconsistency;
@@ -11,7 +13,6 @@ use crate::engine::propagation::propagation_context::PropagationContextMut;
 use crate::engine::BooleanDomainEvent;
 #[cfg(doc)]
 use crate::engine::ConstraintSatisfactionSolver;
-use crate::engine::variables::FlattenedVariable;
 use crate::predicates::PropositionalConjunction;
 #[cfg(doc)]
 use crate::propagators::clausal::BasicClausalPropagator;
@@ -20,6 +21,29 @@ use crate::pumpkin_asserts::PUMPKIN_ASSERT_ADVANCED;
 #[cfg(doc)]
 use crate::pumpkin_asserts::PUMPKIN_ASSERT_EXTREME;
 use crate::statistics::statistic_logger::StatisticLogger;
+
+#[derive(Default, Debug, Clone)]
+pub struct LinearConstraint {
+    pub lhs: Vec<(u32, i32)>,
+    pub rhs: i32,
+}
+
+impl Display for LinearConstraint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let lhs_mapped = self.lhs.iter().filter_map(|(v, s)| {
+            return if *s == 0 {
+                None
+            } else if *s == 1 {
+                Some(format!("x{v}"))
+            } else if *s == -1 {
+                Some(format!("-x{v}"))
+            } else {
+                Some(format!("{s}x{v}"))
+            }
+        }).join(" + ");
+        write!(f, "{lhs_mapped} <= {:?}", self.rhs)
+    }
+}
 
 /// All propagators implement the [`Propagator`] trait, with the exception of the
 /// clausal propagator. Structs implementing the trait defines the main propagator logic with
@@ -180,7 +204,7 @@ pub trait Propagator {
     /// It is recommended to create a struct through the [`create_statistics_struct!`] macro!
     fn log_statistics(&self, _statistic_logger: StatisticLogger) {}
 
-    fn get_linear_constraint(&self) -> Option<(Vec<FlattenedVariable>, i32)> {
+    fn get_linear_constraint(&self) -> Option<LinearConstraint> {
         None
     }
 }

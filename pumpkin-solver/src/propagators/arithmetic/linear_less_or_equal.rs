@@ -7,8 +7,9 @@ use crate::engine::domain_events::DomainEvents;
 use crate::engine::propagation::LocalId;
 use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
+use crate::engine::propagation::propagator::LinearConstraint;
 use crate::engine::propagation::PropagatorInitialisationContext;
-use crate::engine::variables::{FlattenedVariable, IntegerVariable};
+use crate::engine::variables::IntegerVariable;
 use crate::predicate;
 
 /// Propagator for the constraint `reif => \sum x_i <= c`.
@@ -58,9 +59,15 @@ where
         perform_propagation(context, &self.x, self.c)
     }
 
-    fn get_linear_constraint(&self) -> Option<(Vec<FlattenedVariable>, i32)> {
+    fn get_linear_constraint(&self) -> Option<LinearConstraint> {
         let flat_vars = self.x.iter().map(|var| var.flatten()).collect_vec();
-        Some((flat_vars, self.c))
+
+        let lhs = flat_vars.iter().map(|var| (var.id, var.scale)).collect_vec();
+
+        let var_offsets = flat_vars.iter().map(|var| var.offset).sum::<i32>();
+        let rhs = self.c - var_offsets;
+
+        Some(LinearConstraint { lhs, rhs })
     }
 }
 

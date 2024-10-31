@@ -1,54 +1,15 @@
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
 use itertools::Itertools;
 use crate::basic_types::StoredConflictInfo;
 use crate::engine::conflict_analysis::{AnalysisStep, ConflictAnalyser, ConflictAnalysisContext, ConflictAnalysisResult, LearnedClause, LearnedLinearConstraint, ResolutionConflictAnalyser};
 use crate::engine::constraint_satisfaction_solver::CoreExtractionResult;
-use crate::engine::propagation::PropagatorId;
-use crate::engine::propagation::store::PropagatorStore;
+use crate::engine::propagation::propagator::LinearConstraint;
 use crate::propagators::linear_less_or_equal::{can_propagate, LinearLessOrEqualPropagator};
 use crate::variables::{DomainId, TransformableVariable};
-
-struct LinearConstraint {
-    lhs: Vec<(u32, i32)>,
-    rhs: i32,
-}
-
-impl Display for LinearConstraint {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let lhs_mapped = self.lhs.iter().filter_map(|(v, s)| {
-            return if *s == 0 {
-                None
-            } else if *s == 1 {
-                Some(format!("x{v}"))
-            } else if *s == -1 {
-                Some(format!("-x{v}"))
-            } else {
-                Some(format!("{s}x{v}"))
-            }
-        }).join(" + ");
-        write!(f, "{lhs_mapped} <= {:?}", self.rhs)
-    }
-}
 
 #[derive(Default, Debug)]
 pub(crate) struct IntSatConflictAnalyser {
     resolution_analyser: ResolutionConflictAnalyser,
-}
-
-fn prop_to_linear_constraint(propagator_store: &PropagatorStore, id: PropagatorId) -> LinearConstraint {
-    let prop = &propagator_store[id];
-
-    if let Some((x, c)) = prop.get_linear_constraint() {
-        let var_c = x.iter().map(|var| var.offset).sum::<i32>();
-
-        let lhs = x.iter().map(|var| (var.id, var.scale)).collect_vec();
-        let rhs = c - var_c;
-
-        LinearConstraint { lhs, rhs }
-    } else {
-        todo!("unsupported propagator")
-    }
 }
 
 impl ConflictAnalyser for IntSatConflictAnalyser {
@@ -70,7 +31,8 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
 
         let mut conflicting_constraint = match context.solver_state.get_conflict_info() {
             StoredConflictInfo::Explanation { conjunction: _conjunction, propagator } => {
-                prop_to_linear_constraint(context.propagator_store, *propagator)
+                let prop = &context.propagator_store[*propagator];
+                prop.get_linear_constraint().unwrap()
             }
             _ => todo!("unsupported conflict"),
         };
@@ -102,8 +64,10 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
             let (_, conflicting_scale) = conflicting_var.unwrap();
 
             // Find the scale of the variable of its reason
-            let propagator = context.reason_store.get_propagator(next_literal_reason);
-            let prop_constraint = prop_to_linear_constraint(context.propagator_store, propagator);
+            let propagator_id = context.reason_store.get_propagator(next_literal_reason);
+            let propagator = &context.propagator_store[propagator_id];
+            let prop_constraint = propagator.get_linear_constraint().unwrap();
+
             println!("Propagating constraint: {prop_constraint}");
 
             let (_, prop_scale) = prop_constraint.lhs.iter().find(|(id, _)| *id == next_literal_id.id).unwrap();
@@ -119,7 +83,7 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
             }).collect();
 
             prop_constraint.lhs.iter().for_each(|(id, scale)| {
-                if !new_lhs.contains_key(id) { new_lhs.insert(id, 0); }
+                if !new_lhs.contains_key(id) { let _ = new_lhs.insert(id, 0); }
 
                 let curr_scale = new_lhs.get_mut(id).unwrap();
                 *curr_scale += mult_prop * scale;
@@ -201,7 +165,8 @@ fn gcd(a: i32, b: i32) -> i32 {
     // is positive for all numbers except gcd = abs(min value)
     // The call to .abs() causes a panic in debug mode
     if m == i32::MIN || n == i32::MIN {
-        return ((1 << shift) as i32).abs();
+        let i: i32 = 1 << shift;
+        return i.abs();
     }
 
     // guaranteed to be positive now, rest like unsigned algorithm
