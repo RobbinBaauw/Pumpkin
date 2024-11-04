@@ -159,6 +159,8 @@ impl ClausalPropagator for BasicClausalPropagator {
         assignments: &mut AssignmentsPropositional,
         clause_manager: &mut ClauseAllocator,
     ) -> Result<(), ConflictInfo> {
+        return Ok(());
+
         pumpkin_assert_simple!(!self.is_in_infeasible_state);
         // this function is implemented as one long function
         //  dividing this function into several smaller functions would normally make sense for
@@ -293,8 +295,8 @@ impl ClausalPropagator for BasicClausalPropagator {
     }
 
     fn synchronise(&mut self, trail_size: usize) {
-        pumpkin_assert_simple!(self.next_position_on_trail_to_propagate >= trail_size);
-        self.next_position_on_trail_to_propagate = trail_size;
+        // pumpkin_assert_simple!(self.next_position_on_trail_to_propagate >= trail_size);
+        // self.next_position_on_trail_to_propagate = trail_size;
         // self.next_position_on_trail_to_propagate =
         //    std::cmp::min(self.next_position_on_trail_to_propagate, trail_size);
     }

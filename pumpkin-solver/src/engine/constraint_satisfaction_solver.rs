@@ -14,7 +14,7 @@ use rand::SeedableRng;
 
 use super::clause_allocators::ClauseAllocatorInterface;
 use super::clause_allocators::ClauseInterface;
-use super::conflict_analysis::{AnalysisStep, ConflictAnalyser, ConflictAnalysisResult, IntSatConflictAnalyser, LearnedClause, LearnedLinearConstraint};
+use super::conflict_analysis::{AnalysisStep, ConflictAnalyser, ConflictAnalysisResult, IntSatConflictAnalyser, LearnedClause, LearnedLinearConstraint, ResolutionConflictAnalyser};
 use super::propagation::store::PropagatorStore;
 use super::solver_statistics::SolverStatistics;
 use super::termination::TerminationCondition;
@@ -1066,6 +1066,11 @@ impl ConstraintSatisfactionSolver {
             ));
             if let Some(predicate) = decided_predicate {
                 self.counters.engine_statistics.num_decisions += 1;
+
+                // if let Some(integer_predicate) = predicate {
+                //     let _ = self.assignments_integer.apply_integer_predicate(integer_predicate, None);
+                // }
+
                 self.assignments_propositional
                     .enqueue_decision_literal(match predicate {
                         Predicate::IntegerPredicate(integer_predicate) => {

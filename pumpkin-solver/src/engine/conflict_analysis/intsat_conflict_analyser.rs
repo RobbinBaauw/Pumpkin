@@ -42,15 +42,23 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
         let start_index = context.assignments_integer.num_trail_entries();
 
         for trail_index in (0..start_index).rev() {
-            println!("Conflicting constraint: {conflicting_constraint}");
+            println!("Conflicting constraint: {:?} terms", conflicting_constraint.lhs.len());
 
-            let next_literal = context.assignments_integer.get_trail_entry(trail_index);
-            let next_literal_id = next_literal.predicate.get_domain();
-            let next_literal_reason = next_literal.reason.unwrap();
-            println!("Next literal: {next_literal_id}");
+            let next_entry = context.assignments_integer.get_trail_entry(trail_index);
+            let next_entry_id = next_entry.predicate.get_domain();
+
+            // Decisions or a propagation from the propositional trail: what should you do?
+            // We cannot infer anything from them, so we continue and do not touch this variable
+            if next_entry.reason.is_none() {
+                println!("Skipping entry due to no reason");
+                continue;
+            }
+
+            let next_entry_reason = next_entry.reason.unwrap();
+            println!("Next literal: {next_entry_id}");
 
             if conflicting_constraint.lhs.iter().find(|(var, scale)| {
-                *var == next_literal_id.id && *scale != 0
+                *var == next_entry_id.id && *scale != 0
             }).is_none() {
                 println!("Literal not in conflicting constraint");
                 continue;
@@ -58,19 +66,25 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
 
             // Find the variable in the current conflicting constraint corresponding to this trail entry
             // If it does not exist, it means this trail entry is not relevant
-            let conflicting_var = conflicting_constraint.lhs.iter().find(|(id, _)| *id == next_literal_id.id);
+            let conflicting_var = conflicting_constraint.lhs.iter().find(|(id, _)| *id == next_entry_id.id);
             if conflicting_var.is_none() { continue; }
 
             let (_, conflicting_scale) = conflicting_var.unwrap();
 
             // Find the scale of the variable of its reason
-            let propagator_id = context.reason_store.get_propagator(next_literal_reason);
+            let propagator_id = context.reason_store.get_propagator(next_entry_reason);
             let propagator = &context.propagator_store[propagator_id];
             let prop_constraint = propagator.get_linear_constraint().unwrap();
 
             println!("Propagating constraint: {prop_constraint}");
 
-            let (_, prop_scale) = prop_constraint.lhs.iter().find(|(id, _)| *id == next_literal_id.id).unwrap();
+            prop_constraint.lhs.iter().for_each(|(id, _)| {
+                context
+                    .brancher
+                    .on_appearance_in_conflict_integer(DomainId::new(*id));
+            });
+
+            let (_, prop_scale) = prop_constraint.lhs.iter().find(|(id, _)| *id == next_entry_id.id).unwrap();
 
             // Compute the multiplier which to multiply both sides with
             let lcm_val = lcm(*conflicting_scale, *prop_scale);
@@ -89,16 +103,24 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
                 *curr_scale += mult_prop * scale;
             });
 
-            let new_lhs_vec = new_lhs.iter().filter_map(|(id, scale)| {
+            let mut new_lhs_vec = new_lhs.iter().filter_map(|(id, scale)| {
                 if *scale == 0 { None }
                 else { Some((**id, *scale)) }
             }).collect_vec();
+            let mut new_rhs = conflicting_constraint.rhs * mult_conf + prop_constraint.rhs * mult_prop;
+
+            if new_lhs_vec.len() == 0 {
+                continue;
+            }
+
+            // Trying to make the sum a bit smaller
+            let new_gcd = gcd(new_rhs, new_lhs_vec.iter().map(|(_, scale)| *scale).reduce(|a, b| gcd(a, b)).unwrap());
+            new_lhs_vec = new_lhs_vec.iter().map(|(id, scale)| (*id, *scale / new_gcd)).collect_vec();
+            new_rhs = new_rhs / new_gcd;
 
             let new_lhs_vars = new_lhs_vec.iter().map(|(id, scale)| {
                 DomainId::new(*id).scaled(*scale)
             }).collect_vec();
-
-            let new_rhs = conflicting_constraint.rhs * mult_conf + prop_constraint.rhs * mult_prop;
 
             let new_conflicting_constraint = LinearConstraint { lhs: new_lhs_vec, rhs: new_rhs };
 

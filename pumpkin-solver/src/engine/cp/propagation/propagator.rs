@@ -30,7 +30,7 @@ pub struct LinearConstraint {
 
 impl Display for LinearConstraint {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let lhs_mapped = self.lhs.iter().filter_map(|(v, s)| {
+        let lhs_mapped = self.lhs.iter().sorted_by_key(|(v, _)| v).filter_map(|(v, s)| {
             return if *s == 0 {
                 None
             } else if *s == 1 {
