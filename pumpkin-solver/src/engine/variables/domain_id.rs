@@ -84,7 +84,7 @@ impl IntegerVariable for DomainId {
     }
 
     fn flatten(&self) -> FlattenedVariable {
-        FlattenedVariable::new(self.id, 1, 0)
+        FlattenedVariable::new(*self, 1, 0)
     }
 }
 

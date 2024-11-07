@@ -10,7 +10,7 @@ use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::propagation::local_id::LocalId;
 use crate::engine::propagation::propagation_context::PropagationContext;
 use crate::engine::propagation::propagation_context::PropagationContextMut;
-use crate::engine::BooleanDomainEvent;
+use crate::engine::{AssignmentsInteger, BooleanDomainEvent};
 #[cfg(doc)]
 use crate::engine::ConstraintSatisfactionSolver;
 use crate::predicates::PropositionalConjunction;
@@ -21,24 +21,59 @@ use crate::pumpkin_asserts::PUMPKIN_ASSERT_ADVANCED;
 #[cfg(doc)]
 use crate::pumpkin_asserts::PUMPKIN_ASSERT_EXTREME;
 use crate::statistics::statistic_logger::StatisticLogger;
+use crate::variables::{AffineView, DomainId, IntegerVariable, TransformableVariable};
 
 #[derive(Default, Debug, Clone)]
 pub struct LinearConstraint {
-    pub lhs: Vec<(u32, i32)>,
+    pub lhs: Vec<(DomainId, i32)>,
     pub rhs: i32,
+}
+
+impl LinearConstraint {
+    pub fn find_variable_scale(&self, variable: DomainId) -> Option<i32> {
+        self.lhs.iter().find(|(domain_id, _)| *domain_id == variable).map(|(_, scale)| *scale)
+    }
+
+    pub fn to_vars(&self) -> Vec<AffineView<DomainId>> {
+        self.lhs.iter().map(|(id, scale)| id.scaled(*scale)).collect_vec()
+    }
+
+    pub fn slack(&self, assignments_integer: &AssignmentsInteger) -> i32 {
+        let lb_lhs = self.lhs.iter().map(|(id, scale)| *scale * assignments_integer.get_lower_bound(*id)).sum::<i32>();
+        self.rhs - lb_lhs
+    }
+
+    pub fn is_conflicting(&self, assignments_integer: &AssignmentsInteger) -> bool {
+        self.slack(assignments_integer) < 0
+    }
+
+    pub fn is_propagating(&self, assignments_integer: &AssignmentsInteger) -> bool {
+        let lb_lhs = self.lhs.iter().map(|(id, scale)| *scale * assignments_integer.get_lower_bound(*id)).sum::<i32>();
+
+        for (id, scale) in &self.lhs {
+            let x_i = id.scaled(*scale);
+            let bound = self.rhs - (lb_lhs - x_i.lower_bound(assignments_integer));
+
+            if x_i.upper_bound(assignments_integer) > bound {
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 impl Display for LinearConstraint {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let lhs_mapped = self.lhs.iter().sorted_by_key(|(v, _)| v).filter_map(|(v, s)| {
+        let lhs_mapped = self.lhs.iter().sorted_by_key(|(v, _)| v.id).filter_map(|(v, s)| {
             return if *s == 0 {
                 None
             } else if *s == 1 {
-                Some(format!("x{v}"))
+                Some(format!("{v}"))
             } else if *s == -1 {
-                Some(format!("-x{v}"))
+                Some(format!("-{v}"))
             } else {
-                Some(format!("{s}x{v}"))
+                Some(format!("{s}{v}"))
             }
         }).join(" + ");
         write!(f, "{lhs_mapped} <= {:?}", self.rhs)

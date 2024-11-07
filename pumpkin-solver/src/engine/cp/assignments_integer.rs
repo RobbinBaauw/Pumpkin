@@ -181,6 +181,12 @@ impl AssignmentsInteger {
             .copied()
     }
 
+    pub fn prev_bounds(&self, reverted_entry: &ConstraintProgrammingTrailEntry) -> (i32, i32) {
+        let mut domain = self.domains[reverted_entry.predicate.get_domain()].clone();
+        domain.undo_trail_entry(reverted_entry);
+        (domain.lower_bound, domain.upper_bound)
+    }
+
     /// Returns the assigned value of the provided [`DomainId`]; this method will panic if the
     /// [`DomainId`] is not assigned
     pub fn get_assigned_value(&self, domain_id: DomainId) -> i32 {
@@ -515,6 +521,13 @@ impl AssignmentsInteger {
 
         });
         unfixed_variables
+    }
+
+    pub fn synchronise_trail_idx(&mut self, new_trail_idx: usize)  {
+        self.trail.synchronise_trail_idx(new_trail_idx).enumerate().for_each(|(_, entry)| {
+            let domain_id = entry.predicate.get_domain();
+            self.domains[domain_id].undo_trail_entry(&entry);
+        });
     }
 }
 

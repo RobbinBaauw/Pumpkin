@@ -1,6 +1,6 @@
 use pumpkin_solver::{constraints, Solver};
 use pumpkin_solver::branching::branchers::independent_variable_value_brancher::IndependentVariableValueBrancher;
-use pumpkin_solver::branching::{InDomainSplit, SolutionGuidedValueSelector, Vsids};
+use pumpkin_solver::branching::{InDomainSplit, Vsids};
 use pumpkin_solver::results::{ProblemSolution, SatisfactionResult};
 use pumpkin_solver::termination::Indefinite;
 use pumpkin_solver::variables::{DomainId, TransformableVariable};

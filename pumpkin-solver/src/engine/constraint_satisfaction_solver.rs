@@ -14,7 +14,7 @@ use rand::SeedableRng;
 
 use super::clause_allocators::ClauseAllocatorInterface;
 use super::clause_allocators::ClauseInterface;
-use super::conflict_analysis::{AnalysisStep, ConflictAnalyser, ConflictAnalysisResult, IntSatConflictAnalyser, LearnedClause, LearnedLinearConstraint, ResolutionConflictAnalyser};
+use super::conflict_analysis::{AnalysisStep, ConflictAnalyser, ConflictAnalysisResult, IntSatConflictAnalyser, LearnedClause, LearnedLinearConstraint};
 use super::propagation::store::PropagatorStore;
 use super::solver_statistics::SolverStatistics;
 use super::termination::TerminationCondition;

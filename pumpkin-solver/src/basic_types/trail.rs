@@ -52,6 +52,16 @@ impl<T> Trail<T> {
         self.trail.drain(new_trail_len..).rev()
     }
 
+    pub(crate) fn synchronise_trail_idx(&mut self, new_trail_idx: usize) -> Rev<Drain<T>> {
+        pumpkin_assert_simple!(new_trail_idx < self.trail.len());
+
+        let new_decision_level = self.get_decision_level_at_idx(new_trail_idx);
+
+        self.current_decision_level = new_decision_level;
+        self.trail_delimiter.truncate(new_decision_level);
+        self.trail.drain(new_trail_idx + 1..).rev()
+    }
+
     pub(crate) fn push(&mut self, elem: T) {
         self.trail.push(elem)
     }

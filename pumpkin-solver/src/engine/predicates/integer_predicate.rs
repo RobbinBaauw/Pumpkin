@@ -30,33 +30,19 @@ pub enum IntegerPredicate {
 
 impl IntegerPredicate {
     pub fn is_equality_predicate(&self) -> bool {
-        matches!(
-            *self,
-            IntegerPredicate::Equal {
-                domain_id: _,
-                equality_constant: _
-            }
-        )
+        matches!(*self, IntegerPredicate::Equal { .. })
     }
 
     pub fn is_lower_bound_predicate(&self) -> bool {
-        matches!(
-            *self,
-            IntegerPredicate::LowerBound {
-                domain_id: _,
-                lower_bound: _
-            }
-        )
+        matches!(*self, IntegerPredicate::LowerBound { .. })
+    }
+
+    pub fn is_upper_bound_predicate(&self) -> bool {
+        matches!(*self, IntegerPredicate::UpperBound { .. })
     }
 
     pub fn is_not_equal_predicate(&self) -> bool {
-        matches!(
-            *self,
-            IntegerPredicate::NotEqual {
-                domain_id: _,
-                not_equal_constant: _
-            }
-        )
+        matches!(*self, IntegerPredicate::NotEqual { .. })
     }
 
     /// Returns the [`DomainId`] of the [`IntegerPredicate`]
