@@ -6,7 +6,7 @@ use crate::engine::propagation::PropagationContext;
 use crate::predicate;
 use crate::predicates::Predicate;
 use crate::predicates::PropositionalConjunction;
-use crate::propagators::cumulative::time_table::time_table_util::ResourceProfile;
+use crate::propagators::ResourceProfile;
 use crate::propagators::Task;
 use crate::variables::IntegerVariable;
 
@@ -62,7 +62,7 @@ where
 pub(crate) fn create_big_step_predicate_propagating_task_upper_bound_propagation<Var>(
     task: &Rc<Task<Var>>,
     profile: &ResourceProfile<Var>,
-    context: &PropagationContext,
+    context: PropagationContext,
 ) -> Predicate
 where
     Var: IntegerVariable + 'static,

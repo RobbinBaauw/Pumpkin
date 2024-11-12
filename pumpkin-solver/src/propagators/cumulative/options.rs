@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use clap::ValueEnum;
+
 use super::CumulativeExplanationType;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -13,6 +15,8 @@ pub(crate) struct CumulativePropagatorOptions {
     pub(crate) explanation_type: CumulativeExplanationType,
     /// Determines whether a sequence of profiles is generated when explaining a propagation.
     pub(crate) generate_sequence: bool,
+    /// Determines whether to incrementally backtrack or to calculate from scratch
+    pub(crate) incremental_backtracking: bool,
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -31,6 +35,7 @@ impl CumulativeOptions {
         explanation_type: CumulativeExplanationType,
         generate_sequence: bool,
         propagation_method: CumulativePropagationMethod,
+        incremental_backtracking: bool,
     ) -> Self {
         Self {
             propagation_method,
@@ -38,18 +43,21 @@ impl CumulativeOptions {
                 allow_holes_in_domain,
                 explanation_type,
                 generate_sequence,
+                incremental_backtracking,
             },
         }
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, ValueEnum)]
 pub enum CumulativePropagationMethod {
     TimeTablePerPoint,
     TimeTablePerPointIncremental,
+    TimeTablePerPointIncrementalSynchronised,
     TimeTableOverInterval,
     #[default]
     TimeTableOverIntervalIncremental,
+    TimeTableOverIntervalIncrementalSynchronised,
 }
 
 impl Display for CumulativePropagationMethod {
@@ -59,11 +67,17 @@ impl Display for CumulativePropagationMethod {
             CumulativePropagationMethod::TimeTablePerPointIncremental => {
                 write!(f, "time-table-per-point-incremental")
             }
+            CumulativePropagationMethod::TimeTablePerPointIncrementalSynchronised => {
+                write!(f, "time-table-per-point-incremental-synchronised")
+            }
             CumulativePropagationMethod::TimeTableOverInterval => {
                 write!(f, "time-table-over-interval")
             }
             CumulativePropagationMethod::TimeTableOverIntervalIncremental => {
                 write!(f, "time-table-over-interval-incremental")
+            }
+            CumulativePropagationMethod::TimeTableOverIntervalIncrementalSynchronised => {
+                write!(f, "time-table-over-interval-incremental-synchronised")
             }
         }
     }

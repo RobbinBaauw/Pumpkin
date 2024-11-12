@@ -1,6 +1,7 @@
-use std::fmt::{Display, Formatter};
-use itertools::Itertools;
-use super::PropagatorInitialisationContext;
+use downcast_rs::impl_downcast;
+use downcast_rs::Downcast;
+
+use super::propagator_initialisation_context::PropagatorInitialisationContext;
 #[cfg(doc)]
 use crate::basic_types::Inconsistency;
 use crate::basic_types::PropagationStatusCP;
@@ -10,12 +11,11 @@ use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::propagation::local_id::LocalId;
 use crate::engine::propagation::propagation_context::PropagationContext;
 use crate::engine::propagation::propagation_context::PropagationContextMut;
-use crate::engine::{AssignmentsInteger, BooleanDomainEvent};
+use crate::engine::Assignments;
 #[cfg(doc)]
 use crate::engine::ConstraintSatisfactionSolver;
+use crate::predicates::Predicate;
 use crate::predicates::PropositionalConjunction;
-#[cfg(doc)]
-use crate::propagators::clausal::BasicClausalPropagator;
 #[cfg(doc)]
 use crate::pumpkin_asserts::PUMPKIN_ASSERT_ADVANCED;
 #[cfg(doc)]
@@ -80,6 +80,10 @@ impl Display for LinearConstraint {
     }
 }
 
+// We need to use this to cast from `Box<dyn Propagator>` to `NogoodPropagator`; rust inherently
+// does not allow downcasting from the trait definition to its concrete type.
+impl_downcast!(Propagator);
+
 /// All propagators implement the [`Propagator`] trait, with the exception of the
 /// clausal propagator. Structs implementing the trait defines the main propagator logic with
 /// regards to propagation, detecting conflicts, and providing explanations.
@@ -90,7 +94,7 @@ impl Display for LinearConstraint {
 /// enough, but a more mature implementation considers all functions in most cases.
 ///
 /// See the [`crate::engine::cp::propagation`] documentation for more details.
-pub trait Propagator {
+pub trait Propagator: Downcast {
     /// Return the name of the propagator, this is a convenience method that is used for printing.
     fn name(&self) -> &str;
 
@@ -116,7 +120,7 @@ pub trait Propagator {
     /// [`Result::Ok`], otherwise it should return a [`Result::Err`] with an [`Inconsistency`] which
     /// contains the reason for the failure; either because a propagation caused an
     /// an empty domain ([`Inconsistency::EmptyDomain`]) or because the logic of the propagator
-    /// found the current state to be inconsistent ([`Inconsistency::Other`]).
+    /// found the current state to be inconsistent ([`Inconsistency::Conflict`]).
     ///
     /// Note that the failure (explanation) is given as a conjunction of predicates that lead to the
     /// failure
@@ -166,39 +170,21 @@ pub trait Propagator {
     /// [`PropagatorInitialisationContext::register()`].
     fn notify_backtrack(
         &mut self,
-        _context: &PropagationContext,
+        _context: PropagationContext,
         _local_id: LocalId,
         _event: OpaqueDomainEvent,
     ) {
-    }
-
-    /// Notifies the propagator when the domain of a literal has changed (i.e. it is assigned). See
-    /// [`Propagator::notify`] for a more general explanation.
-    ///
-    /// By default the propagator is always enqueued for every event. Not all propagators will
-    /// benefit from implementing this, so it is not required to do so.
-    fn notify_literal(
-        &mut self,
-        _context: PropagationContext,
-        _local_id: LocalId,
-        _event: BooleanDomainEvent,
-    ) -> EnqueueDecision {
-        EnqueueDecision::Enqueue
     }
 
     /// Called each time the [`ConstraintSatisfactionSolver`] backtracks, the propagator can then
     /// update its internal data structures given the new variable domains.
     ///
     /// By default this function does nothing.
-    fn synchronise(&mut self, _context: &PropagationContext) {}
+    fn synchronise(&mut self, _context: PropagationContext) {}
 
     /// Returns the priority of the propagator represented as an integer. Lower values mean higher
     /// priority and the priority determines the order in which propagators will be asked to
-    /// propagate.
-    ///
-    /// In other words, after the [`BasicClausalPropagator`] has propagated, propagators
-    /// with lower priority values are called before those with higher priority. It is custom
-    /// for simpler propagators to have lower priority values
+    /// propagate. It is custom for simpler propagators to have lower priority values.
     ///
     /// By default the priority is set to 3. It is expected that propagator implementations would
     /// set this value to some appropriate value.
@@ -234,6 +220,15 @@ pub trait Propagator {
         None
     }
 
+    fn lazy_explanation(&mut self, _code: u64, _assignments: &Assignments) -> &[Predicate] {
+        panic!(
+            "{}",
+            format!(
+                "Propagator {} does not support lazy explanations.",
+                self.name()
+            )
+        );
+    }
     /// Logs statistics of the propagator using the provided [`StatisticLogger`].
     ///
     /// It is recommended to create a struct through the [`create_statistics_struct!`] macro!

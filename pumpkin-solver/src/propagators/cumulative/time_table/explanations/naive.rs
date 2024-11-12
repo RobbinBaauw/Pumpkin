@@ -5,15 +5,15 @@ use crate::engine::propagation::PropagationContext;
 use crate::predicate;
 use crate::predicates::Predicate;
 use crate::predicates::PropositionalConjunction;
-use crate::propagators::cumulative::time_table::time_table_util::ResourceProfile;
+use crate::propagators::ResourceProfile;
 use crate::propagators::Task;
 use crate::variables::IntegerVariable;
 
 /// Creates the propagation explanation using the naive approach (see
 /// [`CumulativeExplanationType::Naive`])
-pub(crate) fn create_naive_propagation_explanation<'a, Var: IntegerVariable + 'static>(
-    profile: &'a ResourceProfile<Var>,
-    context: &'a PropagationContext,
+pub(crate) fn create_naive_propagation_explanation<Var: IntegerVariable + 'static>(
+    profile: &ResourceProfile<Var>,
+    context: PropagationContext,
 ) -> PropositionalConjunction {
     profile
         .profile_tasks
@@ -35,13 +35,12 @@ pub(crate) fn create_naive_propagation_explanation<'a, Var: IntegerVariable + 's
 
 /// Creates the conflict explanation using the naive approach (see
 /// [`CumulativeExplanationType::Naive`])
-pub(crate) fn create_naive_conflict_explanation<Var, Context>(
+pub(crate) fn create_naive_conflict_explanation<Var, Context: ReadDomains + Copy>(
     conflict_profile: &ResourceProfile<Var>,
-    context: &Context,
+    context: Context,
 ) -> PropositionalConjunction
 where
     Var: IntegerVariable + 'static,
-    Context: ReadDomains,
 {
     conflict_profile
         .profile_tasks
@@ -62,7 +61,7 @@ where
 }
 
 pub(crate) fn create_naive_predicate_propagating_task_lower_bound_propagation<Var>(
-    context: &PropagationContext,
+    context: PropagationContext,
     task: &Rc<Task<Var>>,
 ) -> Predicate
 where
@@ -72,7 +71,7 @@ where
 }
 
 pub(crate) fn create_naive_predicate_propagating_task_upper_bound_propagation<Var>(
-    context: &PropagationContext,
+    context: PropagationContext,
     task: &Rc<Task<Var>>,
 ) -> Predicate
 where

@@ -6,15 +6,16 @@ use std::rc::Rc;
 
 use big_step::create_big_step_predicate_propagating_task_lower_bound_propagation;
 use big_step::create_big_step_predicate_propagating_task_upper_bound_propagation;
+use clap::ValueEnum;
 use naive::create_naive_predicate_propagating_task_lower_bound_propagation;
 use naive::create_naive_predicate_propagating_task_upper_bound_propagation;
 use pointwise::create_pointwise_predicate_propagating_task_lower_bound_propagation;
 use pointwise::create_pointwise_predicate_propagating_task_upper_bound_propagation;
 
-use super::time_table_util::ResourceProfile;
 use crate::engine::propagation::PropagationContext;
 use crate::predicates::Predicate;
 use crate::predicates::PropositionalConjunction;
+use crate::propagators::ResourceProfile;
 use crate::propagators::Task;
 use crate::variables::IntegerVariable;
 
@@ -24,12 +25,12 @@ use crate::variables::IntegerVariable;
 /// For the explanations of conflicts and conflicts, we different between 3 types of explanations:
 /// - The naive explanation (see [`CumulativeExplanationType::Naive`])
 /// - The bigstep explanation (see [CumulativeExplanationType::BigStep])
-/// - The pointwise explanation (see [CumulativeExplanationType::PointWise])
+/// - The pointwise explanation (see [CumulativeExplanationType::Pointwise])
 ///
 /// # Bibliography
 /// \[1\] A. Schutt, Improving scheduling by learning. University of Melbourne, Department of
 /// Computer Science and Software Engineering, 2011.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub enum CumulativeExplanationType {
     /// The naive explanation approach simply uses the current bounds of the profile and the
     /// propagated task in the explanation.
@@ -54,7 +55,7 @@ pub enum CumulativeExplanationType {
     /// For conflicts we follow the work by Schutt (see the documentation for
     /// [`CumulativeExplanationType`]) and select the middle point in the profile as the point used
     /// for the explanation.
-    PointWise,
+    Pointwise,
 }
 
 impl Display for CumulativeExplanationType {
@@ -62,7 +63,7 @@ impl Display for CumulativeExplanationType {
         match self {
             CumulativeExplanationType::Naive => write!(f, "naive"),
             CumulativeExplanationType::BigStep => write!(f, "big-step"),
-            CumulativeExplanationType::PointWise => write!(f, "pointwise"),
+            CumulativeExplanationType::Pointwise => write!(f, "pointwise"),
         }
     }
 }
@@ -72,7 +73,7 @@ pub(crate) fn create_predicate_propagating_task_lower_bound_propagation<
     Var: IntegerVariable + 'static,
 >(
     explanation_type: CumulativeExplanationType,
-    context: &PropagationContext,
+    context: PropagationContext,
     task: &Rc<Task<Var>>,
     profile: &ResourceProfile<Var>,
     time_point: Option<i32>,
@@ -84,7 +85,7 @@ pub(crate) fn create_predicate_propagating_task_lower_bound_propagation<
         CumulativeExplanationType::BigStep => {
             create_big_step_predicate_propagating_task_lower_bound_propagation(task, profile)
         }
-        CumulativeExplanationType::PointWise => {
+        CumulativeExplanationType::Pointwise => {
             create_pointwise_predicate_propagating_task_lower_bound_propagation(task, time_point)
         }
     }
@@ -94,7 +95,7 @@ pub(crate) fn create_predicate_propagating_task_lower_bound_propagation<
 pub(crate) fn add_propagating_task_predicate_lower_bound<Var: IntegerVariable + 'static>(
     mut explanation: PropositionalConjunction,
     explanation_type: CumulativeExplanationType,
-    context: &PropagationContext,
+    context: PropagationContext,
     task: &Rc<Task<Var>>,
     profile: &ResourceProfile<Var>,
     time_point: Option<i32>,
@@ -114,7 +115,7 @@ pub(crate) fn create_predicate_propagating_task_upper_bound_propagation<
     Var: IntegerVariable + 'static,
 >(
     explanation_type: CumulativeExplanationType,
-    context: &PropagationContext,
+    context: PropagationContext,
     task: &Rc<Task<Var>>,
     profile: &ResourceProfile<Var>,
     time_point: Option<i32>,
@@ -128,7 +129,7 @@ pub(crate) fn create_predicate_propagating_task_upper_bound_propagation<
                 task, profile, context,
             )
         }
-        CumulativeExplanationType::PointWise => {
+        CumulativeExplanationType::Pointwise => {
             create_pointwise_predicate_propagating_task_upper_bound_propagation(task, time_point)
         }
     }
@@ -138,7 +139,7 @@ pub(crate) fn create_predicate_propagating_task_upper_bound_propagation<
 pub(crate) fn add_propagating_task_predicate_upper_bound<Var: IntegerVariable + 'static>(
     mut explanation: PropositionalConjunction,
     explanation_type: CumulativeExplanationType,
-    context: &PropagationContext,
+    context: PropagationContext,
     task: &Rc<Task<Var>>,
     profile: &ResourceProfile<Var>,
     time_point: Option<i32>,

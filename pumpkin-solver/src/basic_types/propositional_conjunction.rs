@@ -1,4 +1,8 @@
-use super::HashSet;
+use std::ops::Index;
+use std::ops::IndexMut;
+
+use itertools::Itertools;
+
 use crate::engine::predicates::predicate::Predicate;
 
 /// A struct which represents a conjunction of [`Predicate`]s (e.g. it can represent `[x >= 5] /\ [y
@@ -15,6 +19,18 @@ impl PropositionalConjunction {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.predicates_in_conjunction.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.predicates_in_conjunction.is_empty()
+    }
+
+    pub fn contains(&self, predicate: Predicate) -> bool {
+        self.predicates_in_conjunction.contains(&predicate)
+    }
+
     pub fn num_predicates(&self) -> u32 {
         self.predicates_in_conjunction.len() as u32
     }
@@ -27,6 +43,26 @@ impl PropositionalConjunction {
         self.predicates_in_conjunction.iter()
     }
 
+    pub fn as_slice(&self) -> &[Predicate] {
+        self.predicates_in_conjunction.as_slice()
+    }
+
+    pub fn clear(&mut self) {
+        self.predicates_in_conjunction.clear();
+    }
+
+    pub fn push(&mut self, predicate: Predicate) {
+        self.predicates_in_conjunction.push(predicate);
+    }
+
+    pub fn swap(&mut self, a: usize, b: usize) {
+        self.predicates_in_conjunction.swap(a, b)
+    }
+
+    pub fn pop(&mut self) -> Option<Predicate> {
+        self.predicates_in_conjunction.pop()
+    }
+
     pub fn extend_and_remove_duplicates(
         mut self,
         additional_elements: impl Iterator<Item = Predicate>,
@@ -35,8 +71,7 @@ impl PropositionalConjunction {
             .predicates_in_conjunction
             .into_iter()
             .chain(additional_elements)
-            .collect::<HashSet<_>>()
-            .into_iter()
+            .unique()
             .collect();
         self
     }
@@ -52,6 +87,20 @@ impl IntoIterator for PropositionalConjunction {
     }
 }
 
+impl Index<usize> for PropositionalConjunction {
+    type Output = Predicate;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.predicates_in_conjunction[index]
+    }
+}
+
+impl IndexMut<usize> for PropositionalConjunction {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.predicates_in_conjunction[index]
+    }
+}
+
 impl FromIterator<Predicate> for PropositionalConjunction {
     fn from_iter<T: IntoIterator<Item = Predicate>>(iter: T) -> Self {
         let vec = iter.into_iter().collect();
@@ -64,6 +113,12 @@ impl FromIterator<Predicate> for PropositionalConjunction {
 impl From<Vec<Predicate>> for PropositionalConjunction {
     fn from(vec: Vec<Predicate>) -> Self {
         PropositionalConjunction::new(vec)
+    }
+}
+
+impl From<PropositionalConjunction> for Vec<Predicate> {
+    fn from(conjunction: PropositionalConjunction) -> Vec<Predicate> {
+        conjunction.iter().copied().collect()
     }
 }
 

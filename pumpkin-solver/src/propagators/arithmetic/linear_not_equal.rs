@@ -76,7 +76,7 @@ where
         local_id: LocalId,
         _event: OpaqueDomainEvent,
     ) -> EnqueueDecision {
-        // We update the number of fixed variables
+        // If the updated term is fixed then we update the number of fixed variables
         self.number_of_fixed_terms += 1;
         // We update the value of the left-hand side with the value of the newly fixed variable
         self.fixed_lhs += context.lower_bound(&self.terms[local_id.unpack() as usize]);
@@ -101,7 +101,7 @@ where
 
     fn notify_backtrack(
         &mut self,
-        _context: &PropagationContext,
+        _context: PropagationContext,
         local_id: LocalId,
         event: OpaqueDomainEvent,
     ) {
@@ -147,8 +147,8 @@ where
             );
         });
 
-        self.recalculate_fixed_variables(context);
-        self.check_for_conflict(context)?;
+        self.recalculate_fixed_variables(context.as_readonly());
+        self.check_for_conflict(context.as_readonly())?;
         Ok(())
     }
 
@@ -156,7 +156,7 @@ where
         // If the left-hand side is out of date then we simply recalculate from scratch; we only do
         // this when we can propagate or check for a conflict
         if self.should_recalculate_lhs && self.number_of_fixed_terms >= self.terms.len() - 1 {
-            self.recalculate_fixed_variables(&context.as_readonly());
+            self.recalculate_fixed_variables(context.as_readonly());
             self.should_recalculate_lhs = false;
         }
         pumpkin_assert_extreme!(self.is_propagator_state_consistent(context.as_readonly()));
@@ -196,7 +196,7 @@ where
         } else if self.number_of_fixed_terms == self.terms.len() {
             pumpkin_assert_simple!(!self.should_recalculate_lhs);
             // Otherwise we check for a conflict
-            self.check_for_conflict(&context.as_readonly())?;
+            self.check_for_conflict(context.as_readonly())?;
         }
 
         Ok(())
@@ -220,15 +220,15 @@ where
             .iter()
             .map(|var| {
                 if context.is_fixed(var) {
-                    context.lower_bound(var)
+                    context.lower_bound(var) as i64
                 } else {
                     0
                 }
             })
-            .sum::<i32>();
+            .sum::<i64>();
 
         if num_fixed == self.terms.len() - 1 {
-            let value_to_remove = self.rhs - lhs;
+            let value_to_remove = self.rhs as i64 - lhs;
 
             let unfixed_x_i = self
                 .terms
@@ -243,8 +243,14 @@ where
                 .filter(|&(i, _)| i != unfixed_x_i)
                 .map(|(_, x_i)| predicate![x_i == context.lower_bound(x_i)])
                 .collect::<PropositionalConjunction>();
-            context.remove(&self.terms[unfixed_x_i], value_to_remove, reason)?;
-        } else if num_fixed == self.terms.len() && lhs == self.rhs {
+            context.remove(
+                &self.terms[unfixed_x_i],
+                value_to_remove
+                    .try_into()
+                    .expect("Expected to be able to fit i64 into i32"),
+                reason,
+            )?;
+        } else if num_fixed == self.terms.len() && lhs == self.rhs.into() {
             let failure_reason: PropositionalConjunction = self
                 .terms
                 .iter()
@@ -265,7 +271,7 @@ impl<Var: IntegerVariable + 'static> LinearNotEqualPropagator<Var> {
     /// Note that this method always sets the `unfixed_variable_has_been_updated` to true; this
     /// might be too lenient as it could be the case that synchronisation does not lead to the
     /// re-adding of the removed value.
-    fn recalculate_fixed_variables<Context: ReadDomains>(&mut self, context: &Context) {
+    fn recalculate_fixed_variables(&mut self, context: PropagationContext) {
         self.unfixed_variable_has_been_updated = false;
         (self.fixed_lhs, self.number_of_fixed_terms) =
             self.terms
@@ -283,9 +289,9 @@ impl<Var: IntegerVariable + 'static> LinearNotEqualPropagator<Var> {
     }
 
     /// Determines whether a conflict has occurred and calculate the reason for the conflict
-    fn check_for_conflict<Context: ReadDomains>(
+    fn check_for_conflict(
         &self,
-        context: &Context,
+        context: PropagationContext,
     ) -> Result<(), PropositionalConjunction> {
         pumpkin_assert_simple!(!self.should_recalculate_lhs);
         if self.number_of_fixed_terms == self.terms.len() && self.fixed_lhs == self.rhs {
@@ -335,7 +341,7 @@ mod tests {
     use super::*;
     use crate::basic_types::Inconsistency;
     use crate::conjunction;
-    use crate::engine::test_helper::TestSolver;
+    use crate::engine::test_solver::TestSolver;
     use crate::engine::variables::TransformableVariable;
 
     #[test]
@@ -387,7 +393,7 @@ mod tests {
 
         solver.propagate(&mut propagator).expect("non-empty domain");
 
-        let reason = solver.get_reason_int(predicate![y != -2].try_into().unwrap());
+        let reason = solver.get_reason_int(predicate![y != -2]);
 
         assert_eq!(conjunction!([x == 2]), *reason);
     }

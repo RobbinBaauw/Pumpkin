@@ -9,7 +9,6 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
-use log::warn;
 use pumpkin_solver::branching::branchers::alternating_brancher::AlternatingBrancher;
 use pumpkin_solver::branching::branchers::alternating_brancher::AlternatingStrategy;
 use pumpkin_solver::branching::branchers::dynamic_brancher::DynamicBrancher;
@@ -23,7 +22,6 @@ use pumpkin_solver::results::OptimisationResult;
 use pumpkin_solver::results::ProblemSolution;
 use pumpkin_solver::results::SatisfactionResult;
 use pumpkin_solver::results::Solution;
-use pumpkin_solver::results::SolutionReference;
 use pumpkin_solver::termination::Combinator;
 use pumpkin_solver::termination::OsSignal;
 use pumpkin_solver::termination::TimeBudget;
@@ -89,13 +87,14 @@ pub(crate) fn solve(
         instance.search.expect("Expected a search to be defined")
     };
 
-    let value = if let Some(objective_function) = &instance.objective_function {
-        if options.all_solutions {
-            solver.with_solution_callback(move |solution| {
-                print_solution_from_solver(solution, &outputs)
-            })
+    solver.with_solution_callback(move |solution_callback_arguments| {
+        if options.all_solutions || instance.objective_function.is_none() {
+            solution_callback_arguments.log_statistics();
+            print_solution_from_solver(solution_callback_arguments.solution, &outputs);
         }
+    });
 
+    let value = if let Some(objective_function) = &instance.objective_function {
         let result = match objective_function {
             FlatzincObjective::Maximize(domain_id) => {
                 solver.maximise(&mut brancher, &mut termination, *domain_id)
@@ -109,21 +108,8 @@ pub(crate) fn solve(
             OptimisationResult::Optimal(optimal_solution) => {
                 let optimal_objective_value =
                     optimal_solution.get_integer_value(*objective_function.get_domain());
-                let objective_bound_literal = solver.get_literal(get_bound_predicate(
-                    *objective_function,
-                    optimal_objective_value,
-                ));
-
-                if solver
-                    .conclude_proof_optimal(objective_bound_literal)
-                    .is_err()
-                {
-                    warn!("Failed to log solver conclusion");
-                };
-
-                // If `all_solutions` is not turned on then we have not printed the solution yet and
-                // need to print it!
                 if !options.all_solutions {
+                    solver.log_statistics();
                     print_solution_from_solver(&optimal_solution, &instance.outputs)
                 }
                 println!("==========");
@@ -135,10 +121,6 @@ pub(crate) fn solve(
                 Some(best_found_objective_value)
             }
             OptimisationResult::Unsatisfiable => {
-                if solver.conclude_proof_unsat().is_err() {
-                    warn!("Failed to log solver conclusion");
-                };
-
                 println!("{MSG_UNSATISFIABLE}");
                 None
             }
@@ -153,9 +135,7 @@ pub(crate) fn solve(
                 solver.get_solution_iterator(&mut brancher, &mut termination);
             loop {
                 match solution_iterator.next_solution() {
-                    IteratedSolution::Solution(solution) => {
-                        print_solution_reference_from_solver(&solution, &outputs);
-                    }
+                    IteratedSolution::Solution(_) => {}
                     IteratedSolution::Finished => {
                         println!("==========");
                         break;
@@ -171,13 +151,12 @@ pub(crate) fn solve(
             }
         } else {
             match solver.satisfy(&mut brancher, &mut termination) {
-                SatisfactionResult::Satisfiable(solution) => {
-                    print_solution_from_solver(&solution, &outputs);
-                }
+                SatisfactionResult::Satisfiable(_) => {}
                 SatisfactionResult::Unsatisfiable => {
-                    if solver.conclude_proof_unsat().is_err() {
-                        warn!("Failed to log solver conclusion");
-                    };
+                    // todo: add proof-logging
+                    // if solver.conclude_proof_unsat().is_err() {
+                    //     warn!("Failed to log solver conclusion");
+                    // };
 
                     println!("{MSG_UNSATISFIABLE}");
                 }
@@ -199,6 +178,7 @@ pub(crate) fn solve(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn get_bound_predicate(
     objective_function: FlatzincObjective,
     optimal_objective_value: i32,
@@ -220,31 +200,6 @@ fn parse_and_compile(
 
 /// Prints the current solution.
 fn print_solution_from_solver(solution: &Solution, outputs: &[Output]) {
-    for output_specification in outputs {
-        match output_specification {
-            Output::Bool(output) => {
-                output.print_value(|literal| solution.get_literal_value(*literal))
-            }
-
-            Output::Int(output) => {
-                output.print_value(|domain_id| solution.get_integer_value(*domain_id))
-            }
-
-            Output::ArrayOfBool(output) => {
-                output.print_value(|literal| solution.get_literal_value(*literal))
-            }
-
-            Output::ArrayOfInt(output) => {
-                output.print_value(|domain_id| solution.get_integer_value(*domain_id))
-            }
-        }
-    }
-
-    println!("----------");
-}
-
-/// Prints the current solution.
-fn print_solution_reference_from_solver(solution: &SolutionReference<'_>, outputs: &[Output]) {
     for output_specification in outputs {
         match output_specification {
             Output::Bool(output) => {

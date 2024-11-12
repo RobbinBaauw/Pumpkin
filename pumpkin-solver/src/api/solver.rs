@@ -7,15 +7,15 @@ use crate::basic_types::CSPSolverExecutionFlag;
 use crate::basic_types::ConstraintOperationError;
 use crate::basic_types::HashSet;
 use crate::basic_types::Solution;
+use crate::branching::branchers::autonomous_search::AutonomousSearch;
 use crate::branching::branchers::independent_variable_value_brancher::IndependentVariableValueBrancher;
 #[cfg(doc)]
 use crate::branching::value_selection::ValueSelector;
 #[cfg(doc)]
 use crate::branching::variable_selection::VariableSelector;
 use crate::branching::Brancher;
-use crate::branching::PhaseSaving;
-use crate::branching::SolutionGuidedValueSelector;
-use crate::branching::Vsids;
+use crate::branching::InDomainRandom;
+use crate::branching::ProportionalDomainSize;
 use crate::constraints::ConstraintPoster;
 use crate::engine::predicates::predicate::Predicate;
 use crate::engine::propagation::Propagator;
@@ -24,15 +24,14 @@ use crate::engine::variables::DomainId;
 use crate::engine::variables::IntegerVariable;
 use crate::engine::variables::Literal;
 use crate::engine::ConstraintSatisfactionSolver;
-use crate::options::LearningOptions;
 use crate::options::SolverOptions;
 use crate::predicate;
 use crate::pumpkin_assert_simple;
 use crate::results::solution_iterator::SolutionIterator;
 use crate::results::unsatisfiable::UnsatisfiableUnderAssumptions;
-use crate::statistics::statistic_logging::log_statistic;
-use crate::statistics::statistic_logging::log_statistic_postfix;
-use crate::variables::PropositionalVariable;
+use crate::results::SolutionCallbackArguments;
+use crate::statistics::log_statistic;
+use crate::statistics::log_statistic_postfix;
 
 /// The main interaction point which allows the creation of variables, the addition of constraints,
 /// and solving problems.
@@ -88,20 +87,25 @@ pub struct Solver {
     satisfaction_solver: ConstraintSatisfactionSolver,
     /// The function is called whenever an optimisation function finds a solution; see
     /// [`Solver::with_solution_callback`].
-    solution_callback: Box<dyn Fn(&Solution)>,
+    solution_callback: Box<dyn Fn(SolutionCallbackArguments)>,
+    true_literal: Literal,
 }
 
 impl Default for Solver {
     fn default() -> Self {
+        let mut satisfaction_solver = ConstraintSatisfactionSolver::default();
+        let true_literal =
+            satisfaction_solver.create_new_literal_for_predicate(Predicate::trivially_true(), None);
         Self {
-            satisfaction_solver: Default::default(),
+            satisfaction_solver,
             solution_callback: create_empty_function(),
+            true_literal,
         }
     }
 }
 
 /// Creates a place-holder empty function which does not do anything when a solution is found.
-fn create_empty_function() -> Box<dyn Fn(&Solution)> {
+fn create_empty_function() -> Box<dyn Fn(SolutionCallbackArguments)> {
     Box::new(|_| {})
 }
 
@@ -114,14 +118,15 @@ impl std::fmt::Debug for Solver {
 }
 
 impl Solver {
-    /// Creates a solver with the provided [`LearningOptions`] and [`SolverOptions`].
-    pub fn with_options(learning_options: LearningOptions, solver_options: SolverOptions) -> Self {
-        Solver {
-            satisfaction_solver: ConstraintSatisfactionSolver::new(
-                learning_options,
-                solver_options,
-            ),
+    /// Creates a solver with the provided [`SolverOptions`].
+    pub fn with_options(solver_options: SolverOptions) -> Self {
+        let mut satisfaction_solver = ConstraintSatisfactionSolver::new(solver_options);
+        let true_literal =
+            satisfaction_solver.create_new_literal_for_predicate(Predicate::trivially_true(), None);
+        Self {
+            satisfaction_solver,
             solution_callback: create_empty_function(),
+            true_literal,
         }
     }
 
@@ -131,7 +136,10 @@ impl Solver {
     /// Note that this will also
     /// perform the call-back on the optimal solution which is returned in
     /// [`OptimisationResult::Optimal`].
-    pub fn with_solution_callback(&mut self, solution_callback: impl Fn(&Solution) + 'static) {
+    pub fn with_solution_callback(
+        &mut self,
+        solution_callback: impl Fn(SolutionCallbackArguments) + 'static,
+    ) {
         self.solution_callback = Box::new(solution_callback);
     }
 
@@ -146,46 +154,16 @@ impl Solver {
         self.satisfaction_solver.log_statistics();
         log_statistic_postfix();
     }
+
+    pub(crate) fn get_satisfaction_solver_mut(&mut self) -> &mut ConstraintSatisfactionSolver {
+        &mut self.satisfaction_solver
+    }
 }
 
 /// Methods to retrieve information about variables
 impl Solver {
-    /// Get the literal corresponding to the given predicate. As the literal may need to be
-    /// created, this possibly mutates the solver.
-    ///
-    /// # Example
-    /// ```rust
-    /// # use pumpkin_solver::Solver;
-    /// # use pumpkin_solver::predicate;
-    /// let mut solver = Solver::default();
-    ///
-    /// let x = solver.new_bounded_integer(0, 10);
-    ///
-    /// // We can get the literal representing the predicate `[x >= 3]` via the Solver
-    /// let literal = solver.get_literal(predicate!(x >= 3));
-    ///
-    /// // Note that we can also get a literal which is always true
-    /// let true_lower_bound_literal = solver.get_literal(predicate!(x >= 0));
-    /// assert_eq!(true_lower_bound_literal, solver.get_true_literal());
-    /// ```
-    pub fn get_literal(&self, predicate: Predicate) -> Literal {
-        self.satisfaction_solver.get_literal(predicate)
-    }
-
-    /// Get the value of the given [`Literal`] at the root level (after propagation), which could be
-    /// unassigned.
     pub fn get_literal_value(&self, literal: Literal) -> Option<bool> {
         self.satisfaction_solver.get_literal_value(literal)
-    }
-
-    /// Get a literal which is globally true.
-    pub fn get_true_literal(&self) -> Literal {
-        self.satisfaction_solver.get_true_literal()
-    }
-
-    /// Get a literal which is globally false.
-    pub fn get_false_literal(&self) -> Literal {
-        self.satisfaction_solver.get_false_literal()
     }
 
     /// Get the lower-bound of the given [`IntegerVariable`] at the root level (after propagation).
@@ -231,11 +209,12 @@ impl Solver {
     /// let literal = solver.new_literal();
     /// ```
     pub fn new_literal(&mut self) -> Literal {
-        Literal::new(
-            self.satisfaction_solver
-                .create_new_propositional_variable(None),
-            true,
-        )
+        self.satisfaction_solver.create_new_literal(None)
+    }
+
+    pub fn new_literal_for_predicate(&mut self, predicate: Predicate) -> Literal {
+        self.satisfaction_solver
+            .create_new_literal_for_predicate(predicate, None)
     }
 
     /// Create a fresh propositional variable with a given name and return the literal with positive
@@ -250,11 +229,18 @@ impl Solver {
     /// let named_literal = solver.new_named_literal("z");
     /// ```
     pub fn new_named_literal(&mut self, name: impl Into<String>) -> Literal {
-        Literal::new(
-            self.satisfaction_solver
-                .create_new_propositional_variable(Some(name.into())),
-            true,
-        )
+        self.satisfaction_solver
+            .create_new_literal(Some(name.into()))
+    }
+
+    /// Get a literal which is always true.
+    pub fn get_true_literal(&self) -> Literal {
+        self.true_literal
+    }
+
+    /// Get a literal which is always false.
+    pub fn get_false_literal(&self) -> Literal {
+        !self.true_literal
     }
 
     /// Create a new integer variable with the given bounds.
@@ -347,7 +333,7 @@ impl Solver {
             CSPSolverExecutionFlag::Feasible => {
                 let solution: Solution = self.satisfaction_solver.get_solution_reference().into();
                 self.satisfaction_solver.restore_state_at_root(brancher);
-                brancher.on_solution(solution.as_reference());
+                self.process_solution(&solution, brancher);
                 SatisfactionResult::Satisfiable(solution)
             }
             CSPSolverExecutionFlag::Infeasible => {
@@ -376,17 +362,16 @@ impl Solver {
         brancher: &'brancher mut B,
         termination: &'termination mut T,
     ) -> SolutionIterator<'this, 'brancher, 'termination, B, T> {
-        SolutionIterator::new(&mut self.satisfaction_solver, brancher, termination)
+        SolutionIterator::new(self, brancher, termination)
     }
 
     /// Solves the current model in the [`Solver`] until it finds a solution (or is indicated to
     /// terminate by the provided [`TerminationCondition`]) and returns a [`SatisfactionResult`]
     /// which can be used to obtain the found solution or find other solutions.
     ///
-    /// This method takes as input a list of [`Literal`]s which represent so-called assumptions (see
-    /// \[1\] for a more detailed explanation). The [`Literal`]s corresponding to [`Predicate`]s
-    /// over [`IntegerVariable`]s (e.g. lower-bound predicates) can be retrieved from the [`Solver`]
-    /// using [`Solver::get_literal`].
+    /// This method takes as input a list of [`Predicate`]s which represent so-called assumptions
+    /// (see \[1\] for a more detailed explanation). See the [`predicate`] documentation for how
+    /// to construct these predicates.
     ///
     /// # Bibliography
     /// \[1\] N. Eén and N. Sörensson, ‘Temporal induction by incremental SAT solving’, Electronic
@@ -395,7 +380,7 @@ impl Solver {
         &'this mut self,
         brancher: &'brancher mut B,
         termination: &mut T,
-        assumptions: &[Literal],
+        assumptions: &[Predicate],
     ) -> SatisfactionResultUnderAssumptions<'this, 'brancher, B> {
         match self
             .satisfaction_solver
@@ -499,7 +484,7 @@ impl Solver {
         let mut best_objective_value = Default::default();
         let mut best_solution = Solution::default();
 
-        self.process_solution(
+        self.update_best_solution_and_process(
             objective_multiplier,
             &objective_variable,
             &mut best_objective_value,
@@ -516,10 +501,6 @@ impl Solver {
                 predicate![objective_variable >= best_objective_value as i32]
             };
 
-            let objective_bound_literal = self
-                .satisfaction_solver
-                .get_literal(objective_bound_predicate);
-
             if self
                 .strengthen(
                     &objective_variable,
@@ -531,8 +512,7 @@ impl Solver {
                 self.satisfaction_solver.restore_state_at_root(brancher);
                 let _ = self
                     .satisfaction_solver
-                    .conclude_proof_optimal(objective_bound_literal);
-
+                    .conclude_proof_optimal(objective_bound_predicate);
                 return OptimisationResult::Optimal(best_solution);
             }
 
@@ -543,7 +523,7 @@ impl Solver {
                         &objective_variable,
                         best_objective_value * objective_multiplier as i64,
                     );
-                    self.process_solution(
+                    self.update_best_solution_and_process(
                         objective_multiplier,
                         &objective_variable,
                         &mut best_objective_value,
@@ -557,7 +537,7 @@ impl Solver {
                         self.satisfaction_solver.restore_state_at_root(brancher);
                         let _ = self
                             .satisfaction_solver
-                            .conclude_proof_optimal(objective_bound_literal);
+                            .conclude_proof_optimal(objective_bound_predicate);
                         return OptimisationResult::Optimal(best_solution);
                     }
                 }
@@ -577,7 +557,7 @@ impl Solver {
     /// - Calling [`Brancher::on_solution`] on the provided `brancher`.
     /// - Logging the statistics using [`Solver::log_statistics_with_objective`].
     /// - Calling the solution callback stored in [`Solver::solution_callback`].
-    fn process_solution(
+    fn update_best_solution_and_process(
         &self,
         objective_multiplier: i32,
         objective_variable: &impl IntegerVariable,
@@ -592,9 +572,26 @@ impl Solver {
                 .expect("expected variable to be assigned")) as i64;
         *best_solution = self.satisfaction_solver.get_solution_reference().into();
 
-        self.log_statistics_with_objective(*best_objective_value);
-        brancher.on_solution(self.satisfaction_solver.get_solution_reference());
-        (self.solution_callback)(best_solution);
+        self.internal_process_solution(best_solution, brancher, Some(*best_objective_value))
+    }
+
+    pub(crate) fn process_solution(&self, solution: &Solution, brancher: &mut impl Brancher) {
+        self.internal_process_solution(solution, brancher, None)
+    }
+
+    fn internal_process_solution(
+        &self,
+        solution: &Solution,
+        brancher: &mut impl Brancher,
+        objective_value: Option<i64>,
+    ) {
+        brancher.on_solution(solution.as_reference());
+
+        (self.solution_callback)(SolutionCallbackArguments::new(
+            self,
+            solution,
+            objective_value,
+        ));
     }
 
     /// Given the current objective value `best_objective_value`, it adds a constraint specifying
@@ -605,10 +602,9 @@ impl Solver {
         objective_variable: &impl IntegerVariable,
         best_objective_value: i64,
     ) -> Result<(), ConstraintOperationError> {
-        self.satisfaction_solver
-            .add_clause([self.satisfaction_solver.get_literal(
-                objective_variable.upper_bound_predicate((best_objective_value - 1) as i32),
-            )])
+        self.satisfaction_solver.add_clause([predicate!(
+            objective_variable <= (best_objective_value - 1) as i32
+        )])
     }
 
     fn debug_bound_change(
@@ -667,7 +663,7 @@ impl Solver {
     /// modification of the solver will take place.
     pub fn add_clause(
         &mut self,
-        clause: impl IntoIterator<Item = Literal>,
+        clause: impl IntoIterator<Item = Predicate>,
     ) -> Result<(), ConstraintOperationError> {
         self.satisfaction_solver.add_clause(clause)
     }
@@ -703,13 +699,9 @@ impl Solver {
 
 /// Default brancher implementation
 impl Solver {
-    /// Creates a default [`IndependentVariableValueBrancher`] which uses [`Vsids`] as
-    /// [`VariableSelector`] and [`SolutionGuidedValueSelector`] (with [`PhaseSaving`] as its
-    /// back-up selector) as its [`ValueSelector`]; it searches over all
-    /// [`PropositionalVariable`]s defined in the provided `solver`.
-    pub fn default_brancher_over_all_propositional_variables(&self) -> DefaultBrancher {
-        self.satisfaction_solver
-            .default_brancher_over_all_propositional_variables()
+    /// Creates an instance of the [`DefaultBrancher`].
+    pub fn default_brancher(&self) -> DefaultBrancher {
+        DefaultBrancher::default_over_all_variables(&self.satisfaction_solver.assignments)
     }
 }
 
@@ -719,34 +711,35 @@ impl Solver {
     /// Conclude the proof with the unsatisfiable claim.
     ///
     /// This method will finish the proof. Any new operation will not be logged to the proof.
-    pub fn conclude_proof_unsat(&mut self) -> std::io::Result<()> {
-        self.satisfaction_solver.conclude_proof_unsat()
+    pub fn conclude_proof_unsat(&mut self) {
+        let _ = self.satisfaction_solver.conclude_proof_unsat();
     }
 
     #[doc(hidden)]
     /// Conclude the proof with the optimality claim.
     ///
     /// This method will finish the proof. Any new operation will not be logged to the proof.
-    pub fn conclude_proof_optimal(&mut self, bound: Literal) -> std::io::Result<()> {
-        self.satisfaction_solver.conclude_proof_optimal(bound)
-    }
-
-    pub(crate) fn into_satisfaction_solver(self) -> ConstraintSatisfactionSolver {
-        self.satisfaction_solver
+    pub fn conclude_proof_optimal(&mut self, bound: Literal) {
+        let _ = self
+            .satisfaction_solver
+            .conclude_proof_optimal(bound.get_true_predicate());
     }
 }
 
-/// The type of [`Brancher`] which is created by
-/// [`Solver::default_brancher_over_all_propositional_variables`].
+/// A brancher which makes use of VSIDS \[1\] and solution-based phase saving (both adapted for CP).
 ///
-/// It consists of the value selector
-/// [`Vsids`] in combination with a [`SolutionGuidedValueSelector`] with as backup [`PhaseSaving`].
-pub type DefaultBrancher = IndependentVariableValueBrancher<
-    PropositionalVariable,
-    Vsids<PropositionalVariable>,
-    SolutionGuidedValueSelector<
-        PropositionalVariable,
-        bool,
-        PhaseSaving<PropositionalVariable, bool>,
-    >,
+/// If VSIDS does not contain any (unfixed) predicates then it will default to the
+/// [`IndependentVariableValueBrancher`] using [`ProportionalDomainSize`] for variable selection
+/// (over the variables in the order in which they were defined) and [`InDomainRandom`] for value
+/// selection.
+///
+/// # Bibliography
+/// \[1\] M. W. Moskewicz, C. F. Madigan, Y. Zhao, L. Zhang, and S. Malik, ‘Chaff: Engineering an
+/// efficient SAT solver’, in Proceedings of the 38th annual Design Automation Conference, 2001.
+///
+/// \[2\] E. Demirović, G. Chu, and P. J. Stuckey, ‘Solution-based phase saving for CP: A
+/// value-selection heuristic to simulate local search behavior in complete solvers’, in the
+/// proceedings of the Principles and Practice of Constraint Programming (CP 2018).
+pub type DefaultBrancher = AutonomousSearch<
+    IndependentVariableValueBrancher<DomainId, ProportionalDomainSize, InDomainRandom>,
 >;
