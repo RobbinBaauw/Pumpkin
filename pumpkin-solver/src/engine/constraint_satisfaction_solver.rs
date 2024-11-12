@@ -9,7 +9,7 @@ use log::warn;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
-use super::conflict_analysis::{ConflictAnalysisNogoodContext, LearnedConstraint};
+use super::conflict_analysis::{ConflictAnalysisNogoodContext, IntSatConflictResolver, LearnedConstraint};
 use super::conflict_analysis::LearnedNogood;
 use super::conflict_analysis::SemanticMinimiser;
 use super::nogoods::Lbd;
@@ -221,7 +221,7 @@ impl Default for SatisfactionSolverOptions {
             learning_clause_minimisation: true,
             random_generator: SmallRng::seed_from_u64(42),
             proof_log: ProofLog::default(),
-            conflict_resolver: Box::new(ResolutionResolver::default()),
+            conflict_resolver: Box::new(IntSatConflictResolver::default()),
         }
     }
 }

@@ -1094,7 +1094,7 @@ fn intsat_paper_example(solver: &mut Solver) -> Vec<DomainId> {
 // }
 
 fn nqueens_ilp(solver: &mut Solver) -> Vec<DomainId> {
-    let n = 10;
+    let n = 6;
 
     let variables = (0..n)
         .map(|row|
@@ -1145,8 +1145,6 @@ fn main() {
     let vars = nqueens_ilp(&mut solver);
 
     let mut brancher = solver.default_brancher();
-
-    // let mut brancher = solver.default_brancher_over_all_propositional_variables();
 
     match solver.satisfy(&mut brancher, &mut Indefinite) {
         SatisfactionResult::Satisfiable(solution) => {
