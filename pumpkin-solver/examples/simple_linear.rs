@@ -1,6 +1,6 @@
 use pumpkin_solver::{constraints, Solver};
 use pumpkin_solver::branching::branchers::independent_variable_value_brancher::IndependentVariableValueBrancher;
-use pumpkin_solver::branching::{InDomainSplit, Vsids};
+use pumpkin_solver::branching::{InDomainSplit};
 use pumpkin_solver::results::{ProblemSolution, SatisfactionResult};
 use pumpkin_solver::termination::Indefinite;
 use pumpkin_solver::variables::{DomainId, TransformableVariable};
@@ -1138,16 +1138,13 @@ fn nqueens_ilp(solver: &mut Solver) -> Vec<DomainId> {
 fn main() {
     let mut solver = Solver::default();
 
-    configure_statistic_logging("stat", None, None);
+    configure_statistic_logging("stat", None, None, None);
 
     // let vars = intsat_paper_example(&mut solver);
     // let vars = next_test(&mut solver);
     let vars = nqueens_ilp(&mut solver);
 
-    let mut brancher = IndependentVariableValueBrancher::new(
-        Vsids::new(&vars),
-        InDomainSplit{}
-    );
+    let mut brancher = solver.default_brancher();
 
     // let mut brancher = solver.default_brancher_over_all_propositional_variables();
 

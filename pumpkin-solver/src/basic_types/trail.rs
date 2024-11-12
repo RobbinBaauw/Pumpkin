@@ -52,14 +52,12 @@ impl<T> Trail<T> {
         self.current_decision_level
     }
 
-    pub(crate) fn get_decision_level_at_idx(&self, idx: usize) -> usize {
-        for i in 0..self.trail_delimiter.len() {
-            if idx < self.trail_delimiter[i] {
-                return i
-            }
+    pub(crate) fn get_trail_position_for_decision_level(&self, decision_level: usize) -> usize {
+        if decision_level == 0 {
+            0
+        } else {
+            self.trail_delimiter[decision_level - 1]
         }
-
-        self.trail_delimiter.len()
     }
 
     pub(crate) fn synchronise(&mut self, new_decision_level: usize) -> Rev<Drain<T>> {
@@ -70,16 +68,6 @@ impl<T> Trail<T> {
         self.current_decision_level = new_decision_level;
         self.trail_delimiter.truncate(new_decision_level);
         self.trail.drain(new_trail_len..).rev()
-    }
-
-    pub(crate) fn synchronise_trail_idx(&mut self, new_trail_idx: usize) -> Rev<Drain<T>> {
-        pumpkin_assert_simple!(new_trail_idx < self.trail.len());
-
-        let new_decision_level = self.get_decision_level_at_idx(new_trail_idx);
-
-        self.current_decision_level = new_decision_level;
-        self.trail_delimiter.truncate(new_decision_level);
-        self.trail.drain(new_trail_idx + 1..).rev()
     }
 
     pub(crate) fn push(&mut self, elem: T) {

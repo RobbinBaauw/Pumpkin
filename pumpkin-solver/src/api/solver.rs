@@ -672,7 +672,7 @@ impl Solver {
     /// in the proof log.
     pub(crate) fn add_tagged_propagator(
         &mut self,
-        propagator: Box<dyn Propagator>,
+        propagator: impl Propagator + 'static,
         tag: NonZero<u32>,
     ) -> Result<(), ConstraintOperationError> {
         self.satisfaction_solver
@@ -691,7 +691,7 @@ impl Solver {
     /// `false` will be returned again.
     pub(crate) fn add_propagator(
         &mut self,
-        propagator: Box<dyn Propagator>,
+        propagator: impl Propagator + 'static,
     ) -> Result<(), ConstraintOperationError> {
         self.satisfaction_solver.add_propagator(propagator, None)
     }

@@ -83,6 +83,7 @@ pub(crate) mod propagator_id;
 pub(crate) mod propagator_initialisation_context;
 pub(crate) mod propagator_var_id;
 pub(crate) mod store;
+pub(crate) mod linear_constraint;
 
 pub(crate) use local_id::LocalId;
 pub(crate) use propagation_context::PropagationContext;

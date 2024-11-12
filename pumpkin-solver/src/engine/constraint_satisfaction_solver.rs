@@ -9,7 +9,7 @@ use log::warn;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
-use super::conflict_analysis::ConflictAnalysisNogoodContext;
+use super::conflict_analysis::{ConflictAnalysisNogoodContext, LearnedConstraint};
 use super::conflict_analysis::LearnedNogood;
 use super::conflict_analysis::SemanticMinimiser;
 use super::nogoods::Lbd;
@@ -43,6 +43,7 @@ use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::reason::ReasonStore;
 use crate::engine::variables::DomainId;
 use crate::engine::Assignments;
+use crate::engine::conflict_analysis::ConflictResolveResult::{Constraint, Nogood};
 use crate::engine::DebugHelper;
 use crate::engine::IntDomainEvent;
 use crate::engine::RestartOptions;
@@ -881,7 +882,7 @@ impl ConstraintSatisfactionSolver {
             backtrack_event_drain: &mut self.backtrack_event_drain,
         };
 
-        let learned_nogood = self
+        let resolve_result = self
             .internal_parameters
             .conflict_resolver
             .resolve_conflict(&mut conflict_analysis_context);
@@ -889,7 +890,7 @@ impl ConstraintSatisfactionSolver {
         // important to notify about the conflict _before_ backtracking removes literals from
         // the trail -> although in the current version this does nothing but notify that a
         // conflict happened
-        if let Some(learned_nogood) = learned_nogood.as_ref() {
+        if let Some(Nogood(learned_nogood)) = resolve_result.as_ref() {
             self.restart_strategy.notify_conflict(
                 self.lbd_helper.compute_lbd(
                     &learned_nogood.predicates,
@@ -904,14 +905,14 @@ impl ConstraintSatisfactionSolver {
         let result = self
             .internal_parameters
             .conflict_resolver
-            .process(&mut conflict_analysis_context, &learned_nogood);
+            .process(&mut conflict_analysis_context, &resolve_result);
         if result.is_err() {
             // Root level conflict?
             self.state.declare_infeasible();
             return;
         }
 
-        if let Some(learned_nogood) = learned_nogood {
+        if let Some(Nogood(learned_nogood)) = resolve_result {
             let learned_clause = learned_nogood
                 .predicates
                 .iter()

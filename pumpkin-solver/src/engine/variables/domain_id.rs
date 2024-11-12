@@ -1,6 +1,6 @@
 use enumset::EnumSet;
 
-use super::TransformableVariable;
+use super::{FlattenedVariable, TransformableVariable};
 use crate::containers::StorageKey;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::reason::ReasonRef;
@@ -105,6 +105,10 @@ impl IntegerVariable for DomainId {
 
     fn unpack_event(&self, event: OpaqueDomainEvent) -> IntDomainEvent {
         event.unwrap()
+    }
+
+    fn flatten(&self) -> FlattenedVariable {
+        FlattenedVariable::new(*self, 1, 0)
     }
 }
 

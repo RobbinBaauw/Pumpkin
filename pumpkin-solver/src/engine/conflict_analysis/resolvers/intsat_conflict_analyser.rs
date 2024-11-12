@@ -1,15 +1,17 @@
 use std::collections::hash_map::Entry::Occupied;
 use crate::basic_types::StoredConflictInfo;
-use crate::engine::conflict_analysis::{AnalysisStep, ConflictAnalyser, ConflictAnalysisContext, ConflictAnalysisResult, LearnedClause, LearnedLinearConstraint, ResolutionConflictAnalyser};
-use crate::engine::constraint_satisfaction_solver::CoreExtractionResult;
-use crate::engine::propagation::propagator::LinearConstraint;
+use crate::engine::cp::propagation::linear_constraint::LinearConstraint;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
 use crate::variables::{DomainId, TransformableVariable};
 use std::collections::HashMap;
+use crate::conflict_resolution::{ConflictAnalysisNogoodContext, ConflictResolver, LearnedNogood, ResolutionResolver};
+use crate::engine::conflict_analysis::{ConflictResolveResult, LearnedConstraint};
+use crate::engine::conflict_analysis::ConflictResolveResult::{Constraint, Nogood};
+use crate::predicates::Predicate;
 
 #[derive(Default, Debug)]
-pub(crate) struct IntSatConflictAnalyser {
-    resolution_analyser: ResolutionConflictAnalyser,
+pub struct IntSatConflictResolver {
+    resolution_resolver: ResolutionResolver,
 }
 
 fn div_ceil(num: i32, div: i32) -> i32 {
@@ -78,8 +80,8 @@ fn apply_cut(var: DomainId, c1: &LinearConstraint, c2: &LinearConstraint) -> Cut
     new_rhs = div_ceil(new_rhs, new_gcd);
 
     // Check overflow
-    if new_lhs.iter().any(|(_, scale)| *scale > (1<<30)) { return CutResult::Overflow; }
-    if new_rhs > (1<<30) { return CutResult::Overflow; }
+    if new_lhs.iter().any(|(_, scale)| scale.abs() > (1<<30)) { return CutResult::Overflow; }
+    if new_rhs.abs() > (1<<30) { return CutResult::Overflow; }
 
     CutResult::Success {
         constraint: LinearConstraint {
@@ -90,112 +92,89 @@ fn apply_cut(var: DomainId, c1: &LinearConstraint, c2: &LinearConstraint) -> Cut
     }
 }
 
-impl ConflictAnalyser for IntSatConflictAnalyser {
-    fn conflict_analysis(&mut self, context: &mut ConflictAnalysisContext) -> ConflictAnalysisResult {
+impl ConflictResolver for IntSatConflictResolver {
+    fn resolve_conflict(&mut self, context: &mut ConflictAnalysisNogoodContext) -> Option<ConflictResolveResult> {
         println!("PERFORMING CONFLICT ANALYSIS WITH TRAIL");
-        for i in 0..context.assignments_integer.num_trail_entries() {
-            let entry = context.assignments_integer.get_trail_entry(i);
-            println!("{i} (level {:?}): {:?}", context.assignments_integer.get_decision_level_at_idx(i), entry.predicate)
+        for i in 0..context.assignments.num_trail_entries() {
+            let entry = context.assignments.get_trail_entry(i);
+            println!("{i} (level {:?}): {:?}", context.assignments.get_decision_level_for_predicate(&entry.predicate), entry.predicate)
         }
         println!("-");
 
-        if context.assignments_integer.get_decision_level() == 0 {
+        if context.assignments.get_decision_level() == 0 {
             println!("Level 0 conflict: unsat!");
-            return ConflictAnalysisResult::CLAUSE(LearnedClause {
-                learned_literals: vec![context.assignments_propositional.false_literal],
+            return Some(Nogood(LearnedNogood {
+                predicates: vec![Predicate::trivially_false()],
                 backjump_level: 0,
-            })
+            }));
         }
 
         let mut conflicting_constraint = match context.solver_state.get_conflict_info() {
-            StoredConflictInfo::Explanation { conjunction: _conjunction, propagator } => {
-                let prop = &context.propagator_store[*propagator];
+            StoredConflictInfo::Propagator { propagator_id, .. } => {
+                let prop = &context.propagators[*propagator_id];
                 prop.get_linear_constraint().unwrap()
             }
             _ => {
+                // TODO handle this case
                 println!("Unsupported conflict, trying resolution");
-                return self.resolution_analyser.conflict_analysis(context);
+                return self.resolution_resolver.resolve_conflict(context);
             },
         };
 
-        let current_decision_level = context.assignments_integer.get_decision_level();
-        let mut trail_index = context.assignments_integer.num_trail_entries() - 1;
-
-        let mut assignments_curr_state = context.assignments_integer.clone();
+        let current_decision_level = context.assignments.get_decision_level();
+        let mut trail_index = context.assignments.num_trail_entries() - 1;
 
         loop {
             println!("Conflicting constraint: {conflicting_constraint}");
 
-            let mut conflicting_constraint_slack = conflicting_constraint.slack(&assignments_curr_state);
-
             // Find trail entry at which the conflicting constraint is not conflicting anymore
             let trail_entry = loop {
-                assignments_curr_state.synchronise_trail_idx(trail_index);
-
-                let trail_entry = assignments_curr_state.get_trail_entry(trail_index);
+                let trail_entry = context.assignments.get_trail_entry(trail_index);
                 let trail_entry_var = trail_entry.predicate.get_domain();
 
                 if trail_entry.reason.is_none() {
+                    // TODO handle this case
                     println!("No reason (e.g. decision / unit propagation), trying resolution");
-                    return self.resolution_analyser.conflict_analysis(context);
+                    return self.resolution_resolver.resolve_conflict(context);
                 }
 
-                // If the conflicting constraint doesn't contain this variable, next level
-                let Some(conf_var_scale) = conflicting_constraint.find_variable_scale(trail_entry_var) else {
+                // If the conflicting constraint doesn't contain this variable, go to next level
+                if !conflicting_constraint.contains_variable(trail_entry_var) {
                     trail_index -= 1;
                     continue;
                 };
 
-                let (prev_lb, prev_ub) = assignments_curr_state.prev_bounds(&trail_entry);
-
-                let lower_bound_diff = assignments_curr_state.get_lower_bound(trail_entry_var) - prev_lb;
-                let upper_bound_diff = prev_ub - assignments_curr_state.get_upper_bound(trail_entry_var);
-
-                let increases_slack = (conf_var_scale > 0 && lower_bound_diff > 0) || (conf_var_scale < 0 && upper_bound_diff > 0);
-                if increases_slack {
-                    conflicting_constraint_slack += if lower_bound_diff > 0 {
-                        lower_bound_diff * conf_var_scale
-                    } else {
-                        upper_bound_diff * conf_var_scale
-                    };
+                if conflicting_constraint.is_conflicting(context.assignments, Some(trail_index)) {
+                    break trail_entry;
                 }
 
                 trail_index -= 1;
-
-                if conflicting_constraint_slack >= 0 {
-                    break trail_entry;
-                }
             };
 
             // Find the scale of the variable of its reason
             let propagator_id = context.reason_store.get_propagator(trail_entry.reason.unwrap());
-            let propagator = &context.propagator_store[propagator_id];
+            let propagator = &context.propagators[propagator_id];
             let prop_constraint = propagator.get_linear_constraint().unwrap();
             println!("Propagating constraint conflicting at {trail_index}: {prop_constraint}");
 
-            // VSIDS
-            prop_constraint.lhs.iter().for_each(|(id, _)| {
-                context
-                    .brancher
-                    .on_appearance_in_conflict_integer(*id);
-            });
+            // TODO VSIDS
 
             // Actually apply the cut
             let (new_conflicting_constraint, skip_early_backjump) = match apply_cut(trail_entry.predicate.get_domain(), &conflicting_constraint, &prop_constraint) {
                 CutResult::Tautology => {
                     println!("Tautology, trying resolution!");
-                    return self.resolution_analyser.conflict_analysis(context);
+                    return self.resolution_resolver.resolve_conflict(context);
                 }
                 CutResult::Overflow => {
                     println!("Overflow, trying resolution!");
-                    return self.resolution_analyser.conflict_analysis(context);
+                    return self.resolution_resolver.resolve_conflict(context);
                 }
                 CutResult::Contradiction => {
                     println!("Contradiction, unsat!");
-                    return ConflictAnalysisResult::CLAUSE(LearnedClause {
-                        learned_literals: vec![context.assignments_propositional.false_literal],
+                    return Some(Nogood(LearnedNogood {
+                        predicates: vec![Predicate::trivially_false()],
                         backjump_level: 0,
-                    })
+                    }));
                 }
                 CutResult::Success { constraint, skip_early_backjump } => (constraint, skip_early_backjump)
             };
@@ -203,9 +182,9 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
             println!("New conflicting constraint after eliminating {:?}: {new_conflicting_constraint}", trail_entry.predicate.get_domain());
 
             // If this new constraint is not false at the current height, skip!
-            if !new_conflicting_constraint.is_conflicting(&assignments_curr_state) {
+            if !new_conflicting_constraint.is_conflicting(context.assignments, Some(trail_index)) {
                 println!("Not conflicting, trying resolution!");
-                return self.resolution_analyser.conflict_analysis(context);
+                return self.resolution_resolver.resolve_conflict(context);
             }
 
             conflicting_constraint = new_conflicting_constraint;
@@ -217,11 +196,8 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
 
             // TODO checkout original implementation
             for backjump_level in (0..current_decision_level).rev() {
-                let cloned_assignments = &mut context.assignments_integer.clone();
-                let _ = cloned_assignments.synchronise(backjump_level, false, 0);
-
-                let can_propagate_at_level = conflicting_constraint.is_conflicting(cloned_assignments) ||
-                    conflicting_constraint.is_propagating(cloned_assignments);
+                let trail_level = context.assignments.trail.get_trail_position_for_decision_level(backjump_level);
+                let can_propagate_at_level = conflicting_constraint.is_propagating(context.assignments, Some(trail_level));
 
                 if can_propagate_at_level {
                     println!("Backtrack to {backjump_level}: {conflicting_constraint}");
@@ -229,21 +205,17 @@ impl ConflictAnalyser for IntSatConflictAnalyser {
 
                     let vars = conflicting_constraint.lhs.iter().map(|(id, scale)| id.scaled(*scale)).collect();
 
-                    return ConflictAnalysisResult::LINEAR(LearnedLinearConstraint {
+                    return Some(Constraint(LearnedConstraint {
                         learned_constraint: Box::new(LinearLessOrEqualPropagator::new(vars, conflicting_constraint.rhs)),
                         backjump_level,
-                    })
+                    }));
                 }
             }
         }
     }
 
-    fn compute_clausal_core(&mut self, context: &mut ConflictAnalysisContext) -> CoreExtractionResult {
-        self.resolution_analyser.compute_clausal_core(context)
-    }
-
-    fn get_conflict_reasons(&mut self, context: &mut ConflictAnalysisContext, on_analysis_step: &mut dyn FnMut(AnalysisStep)) {
-        self.resolution_analyser.get_conflict_reasons(context, on_analysis_step)
+    fn process(&mut self, context: &mut ConflictAnalysisNogoodContext, learned_nogood: &Option<ConflictResolveResult>) -> Result<(), ()> {
+        todo!()
     }
 }
 

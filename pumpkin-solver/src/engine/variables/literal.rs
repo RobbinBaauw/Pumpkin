@@ -2,7 +2,7 @@ use std::ops::Not;
 
 use enumset::EnumSet;
 
-use super::DomainId;
+use super::{DomainId, FlattenedVariable};
 use super::IntegerVariable;
 use super::TransformableVariable;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
@@ -152,6 +152,10 @@ impl IntegerVariable for Literal {
 
     fn watch_all_backtrack(&self, watchers: &mut Watchers<'_>, events: EnumSet<IntDomainEvent>) {
         self.integer_variable.watch_all_backtrack(watchers, events)
+    }
+
+    fn flatten(&self) -> FlattenedVariable {
+        self.integer_variable.flatten()
     }
 }
 
