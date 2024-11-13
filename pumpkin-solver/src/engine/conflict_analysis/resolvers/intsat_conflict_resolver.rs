@@ -20,7 +20,7 @@ impl Default for IntSatConflictResolver {
         let mut resolver = ResolutionResolver::default();
 
         // TODO set this correctly
-        resolver.only_propagate = true;
+        resolver.only_propagate = false;
 
         IntSatConflictResolver { resolution_resolver: resolver }
     }
@@ -119,24 +119,34 @@ impl ConflictResolver for IntSatConflictResolver {
             println!("{i} (level {:?}): {:?} ({prop_name})", context.assignments.get_decision_level_for_predicate(&entry.predicate).unwrap(), entry.predicate)
         }
 
-        if context.assignments.get_decision_level() == 0 {
-            println!("Level 0 conflict: unsat!");
-            return Some(Nogood(LearnedNogood {
-                predicates: vec![Predicate::trivially_false()],
-                backjump_level: 0,
-            }));
-        }
+        assert_ne!(context.assignments.get_decision_level(), 0);
 
         let mut conflicting_constraint = match context.solver_state.get_conflict_info() {
             StoredConflictInfo::Propagator { propagator_id, .. } => {
-                let prop = &context.propagators[*propagator_id];
-                prop.linear_inequality_explanation().unwrap()
+                let propagator = &context.propagators[*propagator_id];
+
+                match propagator.linear_inequality_explanation() {
+                    None => {
+                        println!("==> Conflict caused by propagator that cannot explain with linear inequality, trying resolution");
+                        return self.resolution_resolver.resolve_conflict(context);
+                    }
+                    Some(prop_constraint_expl) => prop_constraint_expl
+                }
             }
-            _ => {
-                // TODO handle this case
-                println!("Unsupported conflict, trying resolution");
-                return self.resolution_resolver.resolve_conflict(context);
+            StoredConflictInfo::EmptyDomain { .. } => {
+                let last_entry = context.assignments.get_last_entry_on_trail();
+                let propagator_id = context.reason_store.get_propagator(last_entry.reason.unwrap());
+                let propagator = &context.propagators[propagator_id];
+
+                match propagator.linear_inequality_explanation() {
+                    None => {
+                        println!("==> Empty domain caused by propagator that cannot explain with linear inequality, trying resolution");
+                        return self.resolution_resolver.resolve_conflict(context);
+                    }
+                    Some(prop_constraint_expl) => prop_constraint_expl
+                }
             },
+            StoredConflictInfo::RootLevelConflict(..) => unreachable!("Shouldn't be possible"),
         };
 
         let current_decision_level = context.assignments.get_decision_level();
@@ -197,16 +207,13 @@ impl ConflictResolver for IntSatConflictResolver {
                 // This gives 3 * [x >= 1] + [y >= 1] + [y >= 2] - [z <= 1] <= 2
                 // This is correct in that it doesn't discard any feasible solutions (it allows any combination of y, z when x = 0)
 
-                // Note to self: it's not required to check whether we need to invert when only dealing with linear inequalities
-                // You can only get a conflict if the propagation is made for the same variable with a different sign
-                // If it "helps" the other constraint increase its slack, it will never cause a conflict
-
                 // The main problem here is that a linear constraint is in the form <=, and a clause >= 1, so we have to invert it to get to the same shape
                 // Then, it _should_ work the same and the fields always have opposite signs
 
-                // Is there an alternative way to implement this simpler????
-
-                // let nogood_reason = context.reason_store.get_or_compute_new(trail_entry.reason.unwrap(), context.assignments, context.propagators);
+                // Alternatively: When performing resolution, we can store the conflicting linear constraint of this conflict as being the reason.
+                // The next time we encounter the propagated nogood, we can use the linear constraint.
+                // However, this still just uses resolution, but allows for using linear constraints in some more cases, even when nogoods have been propagated
+                // TODO think this through a bit more to see if it's nice
 
                 println!("==>==> Detected nogoods, performing resolution");
                 return self.resolution_resolver.resolve_conflict(context);
@@ -216,7 +223,9 @@ impl ConflictResolver for IntSatConflictResolver {
 
             // TODO updating activities
 
-            // Actually apply the cut
+            // Note to self: it's not required to check whether we need to invert when only dealing with linear inequalities
+            // You can only get a conflict if the propagation is made for the same variable with a different sign
+            // If it "helps" the other constraint increase its slack, it will never cause a conflict
             let (new_conflicting_constraint, skip_early_backjump) = match apply_cut(trail_entry.predicate.get_domain(), &conflicting_constraint, &prop_constraint_expl) {
                 CutResult::Tautology => {
                     println!("==>==> Tautology, trying resolution!");
