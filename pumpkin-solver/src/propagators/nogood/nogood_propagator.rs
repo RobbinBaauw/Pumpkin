@@ -219,10 +219,13 @@ impl NogoodPropagator {
         // println!("nogood: {:?}", nogood);
 
         if nogood.len() == 1 {
-            self.add_permanent_nogood(nogood, context)
-                .expect("Unit learned nogoods cannot fail.");
+            println!("==>==> Propagating {:?}", !nogood[0]);
+            // Propagates the one nogood, doesn't learn anything else
+            context.post_predicate(!nogood[0], conjunction!()).expect("Oopsie");
             return;
         }
+
+        println!("==>==> Learning nogood {:?}", nogood);
 
         // Skip the zero-th predicate since it is unassigned,
         // but will be assigned at the level of the predicate at index one.

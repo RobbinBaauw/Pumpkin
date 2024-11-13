@@ -172,14 +172,15 @@ pub trait Propagator: Downcast {
             )
         );
     }
+
+    fn linear_inequality_explanation(&self) -> Option<LinearConstraint> {
+        None
+    }
+
     /// Logs statistics of the propagator using the provided [`StatisticLogger`].
     ///
     /// It is recommended to create a struct through the [`create_statistics_struct!`] macro!
     fn log_statistics(&self, _statistic_logger: StatisticLogger) {}
-
-    fn get_linear_constraint(&self) -> Option<LinearConstraint> {
-        None
-    }
 }
 
 /// Indicator of what to do when a propagator is notified.

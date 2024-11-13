@@ -1,3 +1,4 @@
+use std::ops::{Add, Mul, Neg, Sub};
 use enumset::EnumSet;
 
 use super::{FlattenedVariable, TransformableVariable};
@@ -119,6 +120,38 @@ impl TransformableVariable<AffineView<DomainId>> for DomainId {
 
     fn offset(&self, offset: i32) -> AffineView<DomainId> {
         AffineView::new(*self, 1, offset)
+    }
+}
+
+impl Mul<i32> for DomainId {
+    type Output = AffineView<DomainId>;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        self.scaled(rhs)
+    }
+}
+
+impl Add<i32> for DomainId {
+    type Output = AffineView<DomainId>;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        self.offset(rhs)
+    }
+}
+
+impl Sub<i32> for DomainId {
+    type Output = AffineView<DomainId>;
+
+    fn sub(self, rhs: i32) -> Self::Output {
+        self.offset(-rhs)
+    }
+}
+
+impl Neg for DomainId {
+    type Output = AffineView<DomainId>;
+
+    fn neg(self) -> Self::Output {
+        self.scaled(-1)
     }
 }
 

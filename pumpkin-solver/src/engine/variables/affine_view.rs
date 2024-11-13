@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-
+use std::ops::{Add, Mul, Neg, Sub};
 use enumset::EnumSet;
 
 use super::{FlattenedVariable, TransformableVariable};
@@ -236,6 +236,50 @@ where
         let mut result = self.clone();
         result.offset += offset;
         result
+    }
+}
+
+impl<View> Mul<i32> for AffineView<View>
+where
+    View: IntegerVariable,
+{
+    type Output = AffineView<View>;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        self.scaled(rhs)
+    }
+}
+
+impl<View> Add<i32> for AffineView<View>
+where
+    View: IntegerVariable,
+{
+    type Output = AffineView<View>;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        self.offset(rhs)
+    }
+}
+
+impl<View> Sub<i32> for AffineView<View>
+where
+    View: IntegerVariable,
+{
+    type Output = AffineView<View>;
+
+    fn sub(self, rhs: i32) -> Self::Output {
+        self.offset(-rhs)
+    }
+}
+
+impl<View> Neg for AffineView<View>
+where
+    View: IntegerVariable,
+{
+    type Output = AffineView<View>;
+
+    fn neg(self) -> Self::Output {
+        self.scaled(-1)
     }
 }
 

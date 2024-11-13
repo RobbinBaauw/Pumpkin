@@ -10,9 +10,20 @@ use crate::engine::conflict_analysis::ConflictResolveResult::{Constraint, Nogood
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::predicates::Predicate;
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct IntSatConflictResolver {
     resolution_resolver: ResolutionResolver,
+}
+
+impl Default for IntSatConflictResolver {
+    fn default() -> Self {
+        let mut resolver = ResolutionResolver::default();
+
+        // TODO set this correctly
+        resolver.only_propagate = true;
+
+        IntSatConflictResolver { resolution_resolver: resolver }
+    }
 }
 
 fn div_ceil(num: i32, div: i32) -> i32 {
@@ -98,7 +109,14 @@ impl ConflictResolver for IntSatConflictResolver {
         println!("PERFORMING CONFLICT ANALYSIS WITH TRAIL");
         for i in 0..context.assignments.num_trail_entries() {
             let entry = context.assignments.get_trail_entry(i);
-            println!("{i} (level {:?}): {:?}", context.assignments.get_decision_level_for_predicate(&entry.predicate).unwrap(), entry.predicate)
+            let prop_name = if entry.reason.is_some() {
+                let propagator_id = context.reason_store.get_propagator(entry.reason.unwrap());
+                &context.propagators[propagator_id].name()
+            } else {
+                "decision"
+            };
+
+            println!("{i} (level {:?}): {:?} ({prop_name})", context.assignments.get_decision_level_for_predicate(&entry.predicate).unwrap(), entry.predicate)
         }
 
         if context.assignments.get_decision_level() == 0 {
@@ -112,7 +130,7 @@ impl ConflictResolver for IntSatConflictResolver {
         let mut conflicting_constraint = match context.solver_state.get_conflict_info() {
             StoredConflictInfo::Propagator { propagator_id, .. } => {
                 let prop = &context.propagators[*propagator_id];
-                prop.get_linear_constraint().unwrap()
+                prop.linear_inequality_explanation().unwrap()
             }
             _ => {
                 // TODO handle this case
@@ -161,18 +179,45 @@ impl ConflictResolver for IntSatConflictResolver {
             let propagator_id = context.reason_store.get_propagator(trail_entry.reason.unwrap());
             let propagator = &context.propagators[propagator_id];
 
-            let prop_constraint_opt = propagator.get_linear_constraint();
-            if prop_constraint_opt.is_none() {
-                println!("Hmm this is hard!");
-                // TODO
-                let _ = propagator.get_linear_constraint();
+            let prop_constraint_expl_opt = propagator.linear_inequality_explanation();
+            if prop_constraint_expl_opt.is_none() {
+                // In this case, we have a conjunction of predicates, which we can somewhat turn into a linear constraint
+                // Say for instance, our conflicting constraint is 3x + y <= 3, with reason for [y >= 3] being [z >= 2] /\ [y <= 2]
+                // This can be turned into a linear constraint [z <= 1] + [y >= 3] >= 1
+                // However, we cannot apply cancelling addition between y and [y >= 3]...
+
+                // IntSat: just propagates a bound when performing resolution
+                // Pumpkin: propagates a nogood conjunction as well, so this step will come up quite often.
+                //          Maybe should first work with a mode that doesn't learn anything
+
+                // Emir's idea: You can represent 3x + y <= 3 (with x, y in [0, 3]) as
+                // 3 * [x >= 1] + [y >= 1] + [y >= 2] + [y >= 3] <= 3
+
+                // We can then apply resolution by inverting our nogoods: -[z <= 1] + -[y >= 3] <= -1
+                // This gives 3 * [x >= 1] + [y >= 1] + [y >= 2] - [z <= 1] <= 2
+                // This is correct in that it doesn't discard any feasible solutions (it allows any combination of y, z when x = 0)
+
+                // Note to self: it's not required to check whether we need to invert when only dealing with linear inequalities
+                // You can only get a conflict if the propagation is made for the same variable with a different sign
+                // If it "helps" the other constraint increase its slack, it will never cause a conflict
+
+                // The main problem here is that a linear constraint is in the form <=, and a clause >= 1, so we have to invert it to get to the same shape
+                // Then, it _should_ work the same and the fields always have opposite signs
+
+                // Is there an alternative way to implement this simpler????
+
+                // let nogood_reason = context.reason_store.get_or_compute_new(trail_entry.reason.unwrap(), context.assignments, context.propagators);
+
+                println!("==>==> Detected nogoods, performing resolution");
+                return self.resolution_resolver.resolve_conflict(context);
             }
-            let prop_constraint = prop_constraint_opt.unwrap();
+
+            let prop_constraint_expl = prop_constraint_expl_opt.unwrap();
 
             // TODO updating activities
 
             // Actually apply the cut
-            let (new_conflicting_constraint, skip_early_backjump) = match apply_cut(trail_entry.predicate.get_domain(), &conflicting_constraint, &prop_constraint) {
+            let (new_conflicting_constraint, skip_early_backjump) = match apply_cut(trail_entry.predicate.get_domain(), &conflicting_constraint, &prop_constraint_expl) {
                 CutResult::Tautology => {
                     println!("==>==> Tautology, trying resolution!");
                     return self.resolution_resolver.resolve_conflict(context);

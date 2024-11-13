@@ -26,6 +26,9 @@ pub struct ResolutionResolver {
     /// The vector may contain duplicates, but will be removed at the end.
     predicates_lower_decision_level: Vec<Predicate>,
     recursive_minimiser: RecursiveMinimiser,
+    /// Is set to true if it shouldn't learn anything, only propagate.
+    /// Used as a test for the IntSat conflict analyser.
+    pub(crate) only_propagate: bool,
 }
 
 impl ConflictResolver for ResolutionResolver {
@@ -372,7 +375,7 @@ impl ResolutionResolver {
 
         LearnedNogood {
             backjump_level,
-            predicates: clean_nogood,
+            predicates: if self.only_propagate { vec![clean_nogood[0]] } else { clean_nogood },
         }
     }
 }

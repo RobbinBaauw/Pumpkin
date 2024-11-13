@@ -1,4 +1,4 @@
-use std::ops::Not;
+use std::ops::{Add, Mul, Neg, Not, Sub};
 
 use enumset::EnumSet;
 
@@ -186,5 +186,37 @@ impl TransformableVariable<AffineView<Literal>> for Literal {
 
     fn offset(&self, offset: i32) -> AffineView<Literal> {
         AffineView::new(*self, 1, offset)
+    }
+}
+
+impl Mul<i32> for Literal {
+    type Output = AffineView<Literal>;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        self.scaled(rhs)
+    }
+}
+
+impl Add<i32> for Literal {
+    type Output = AffineView<Literal>;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        self.offset(rhs)
+    }
+}
+
+impl Sub<i32> for Literal {
+    type Output = AffineView<Literal>;
+
+    fn sub(self, rhs: i32) -> Self::Output {
+        self.offset(-rhs)
+    }
+}
+
+impl Neg for Literal {
+    type Output = AffineView<Literal>;
+
+    fn neg(self) -> Self::Output {
+        self.scaled(-1)
     }
 }

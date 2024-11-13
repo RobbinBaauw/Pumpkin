@@ -136,7 +136,7 @@ where
         "LinearLeq"
     }
 
-    fn get_linear_constraint(&self) -> Option<LinearConstraint> {
+    fn linear_inequality_explanation(&self) -> Option<LinearConstraint> {
         let flat_vars = self.x.iter().map(|var| var.flatten()).collect_vec();
 
         let lhs = flat_vars.iter().map(|var| (var.id, var.scale)).collect_vec();
