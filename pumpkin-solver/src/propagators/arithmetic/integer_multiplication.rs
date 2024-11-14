@@ -285,11 +285,11 @@ mod tests {
         let b = solver.new_variable(0, 4);
         let c = solver.new_variable(-10, 20);
 
-        let mut propagator = solver
+        let propagator = solver
             .new_propagator(IntegerMultiplicationPropagator::new(a, b, c))
             .expect("no empty domains");
 
-        solver.propagate(&mut propagator).expect("no empty domains");
+        solver.propagate(propagator).expect("no empty domains");
 
         assert_eq!(1, solver.lower_bound(a));
         assert_eq!(3, solver.upper_bound(a));
@@ -299,12 +299,12 @@ mod tests {
         assert_eq!(12, solver.upper_bound(c));
 
         let reason_lb = solver.get_reason_int(predicate![c >= 0]);
-        assert_eq!(conjunction!([a >= 0] & [b >= 0]), *reason_lb);
+        assert_eq!(conjunction!([a >= 0] & [b >= 0]).as_slice(), reason_lb);
 
         let reason_ub = solver.get_reason_int(predicate![c <= 12]);
         assert_eq!(
-            conjunction!([a >= 0] & [a <= 3] & [b >= 0] & [b <= 4]),
-            *reason_ub
+            conjunction!([a >= 0] & [a <= 3] & [b >= 0] & [b <= 4]).as_slice(),
+            reason_ub
         );
     }
 
@@ -315,11 +315,11 @@ mod tests {
         let b = solver.new_variable(0, 12);
         let c = solver.new_variable(2, 12);
 
-        let mut propagator = solver
+        let propagator = solver
             .new_propagator(IntegerMultiplicationPropagator::new(a, b, c))
             .expect("no empty domains");
 
-        solver.propagate(&mut propagator).expect("no empty domains");
+        solver.propagate(propagator).expect("no empty domains");
 
         assert_eq!(2, solver.lower_bound(a));
         assert_eq!(3, solver.upper_bound(a));
@@ -329,10 +329,13 @@ mod tests {
         assert_eq!(12, solver.upper_bound(c));
 
         let reason_lb = solver.get_reason_int(predicate![b >= 1]);
-        assert_eq!(conjunction!([a >= 1] & [c >= 1]), *reason_lb);
+        assert_eq!(conjunction!([a >= 1] & [c >= 1]).as_slice(), reason_lb);
 
         let reason_ub = solver.get_reason_int(predicate![b <= 6]);
-        assert_eq!(conjunction!([a >= 2] & [c >= 0] & [c <= 12]), *reason_ub);
+        assert_eq!(
+            conjunction!([a >= 2] & [c >= 0] & [c <= 12]).as_slice(),
+            reason_ub
+        );
     }
 
     #[test]
@@ -342,11 +345,11 @@ mod tests {
         let b = solver.new_variable(3, 6);
         let c = solver.new_variable(2, 12);
 
-        let mut propagator = solver
+        let propagator = solver
             .new_propagator(IntegerMultiplicationPropagator::new(a, b, c))
             .expect("no empty domains");
 
-        solver.propagate(&mut propagator).expect("no empty domains");
+        solver.propagate(propagator).expect("no empty domains");
 
         assert_eq!(1, solver.lower_bound(a));
         assert_eq!(4, solver.upper_bound(a));
@@ -356,9 +359,12 @@ mod tests {
         assert_eq!(12, solver.upper_bound(c));
 
         let reason_lb = solver.get_reason_int(predicate![a >= 1]);
-        assert_eq!(conjunction!([b >= 1] & [c >= 1]), *reason_lb);
+        assert_eq!(conjunction!([b >= 1] & [c >= 1]).as_slice(), reason_lb);
 
         let reason_ub = solver.get_reason_int(predicate![a <= 4]);
-        assert_eq!(conjunction!([b >= 3] & [c >= 0] & [c <= 12]), *reason_ub);
+        assert_eq!(
+            conjunction!([b >= 3] & [c >= 0] & [c <= 12]).as_slice(),
+            reason_ub
+        );
     }
 }

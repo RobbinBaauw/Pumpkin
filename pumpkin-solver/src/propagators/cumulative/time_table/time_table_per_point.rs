@@ -243,9 +243,8 @@ pub(crate) fn debug_propagate_from_scratch_time_table_point<Var: IntegerVariable
 
 #[cfg(test)]
 mod tests {
-
     use crate::basic_types::Inconsistency;
-    use crate::basic_types::PropositionalConjunction;
+    use crate::conjunction;
     use crate::engine::predicates::predicate::Predicate;
     use crate::engine::propagation::EnqueueDecision;
     use crate::engine::test_solver::TestSolver;
@@ -426,7 +425,7 @@ mod tests {
         let s1 = solver.new_variable(0, 6);
         let s2 = solver.new_variable(6, 10);
 
-        let mut propagator = solver
+        let propagator = solver
             .new_propagator(TimeTablePerPointPropagator::new(
                 &[
                     ArgTask {
@@ -450,13 +449,13 @@ mod tests {
         assert_eq!(solver.upper_bound(s2), 10);
         assert_eq!(solver.lower_bound(s1), 0);
         assert_eq!(solver.upper_bound(s1), 6);
-        let notification_status = solver.increase_lower_bound_and_notify(&mut propagator, 0, s1, 5);
+        let notification_status = solver.increase_lower_bound_and_notify(propagator, 0, s1, 5);
         assert!(match notification_status {
             EnqueueDecision::Enqueue => true,
             EnqueueDecision::Skip => false,
         });
 
-        let result = solver.propagate(&mut propagator);
+        let result = solver.propagate(propagator);
         assert!(result.is_ok());
         assert_eq!(solver.lower_bound(s2), 7);
         assert_eq!(solver.upper_bound(s2), 10);
@@ -470,7 +469,7 @@ mod tests {
         let s1 = solver.new_variable(6, 6);
         let s2 = solver.new_variable(1, 8);
 
-        let mut propagator = solver
+        let propagator = solver
             .new_propagator(TimeTablePerPointPropagator::new(
                 &[
                     ArgTask {
@@ -493,20 +492,16 @@ mod tests {
                 },
             ))
             .expect("No conflict");
-        let result = solver.propagate_until_fixed_point(&mut propagator);
+        let result = solver.propagate_until_fixed_point(propagator);
         assert!(result.is_ok());
         assert_eq!(solver.lower_bound(s2), 1);
         assert_eq!(solver.upper_bound(s2), 3);
         assert_eq!(solver.lower_bound(s1), 6);
         assert_eq!(solver.upper_bound(s1), 6);
 
-        let reason = solver.get_reason_int(predicate!(s2 <= 3)).clone();
+        let reason = solver.get_reason_int(predicate!(s2 <= 3));
         assert_eq!(
-            PropositionalConjunction::from(vec![
-                predicate!(s2 <= 5),
-                predicate!(s1 >= 6),
-                predicate!(s1 <= 6),
-            ]),
+            conjunction!([s2 <= 5] & [s1 >= 6] & [s1 <= 6]).as_slice(),
             reason
         );
     }
@@ -521,7 +516,7 @@ mod tests {
         let b = solver.new_variable(2, 3);
         let a = solver.new_variable(0, 1);
 
-        let mut propagator = solver
+        let propagator = solver
             .new_propagator(TimeTablePerPointPropagator::new(
                 &[
                     ArgTask {
@@ -574,12 +569,12 @@ mod tests {
         assert_eq!(solver.lower_bound(f), 0);
         assert_eq!(solver.upper_bound(f), 14);
 
-        let notification_status = solver.increase_lower_bound_and_notify(&mut propagator, 3, e, 3);
+        let notification_status = solver.increase_lower_bound_and_notify(propagator, 3, e, 3);
         assert!(match notification_status {
             EnqueueDecision::Enqueue => true,
             EnqueueDecision::Skip => false,
         });
-        let result = solver.propagate(&mut propagator);
+        let result = solver.propagate(propagator);
         assert!(result.is_ok());
         assert_eq!(solver.lower_bound(f), 10);
     }
@@ -595,7 +590,7 @@ mod tests {
         let b1 = solver.new_variable(3, 3);
         let a = solver.new_variable(0, 1);
 
-        let mut propagator = solver
+        let propagator = solver
             .new_propagator(TimeTablePerPointPropagator::new(
                 &[
                     ArgTask {
@@ -651,12 +646,12 @@ mod tests {
         assert_eq!(solver.lower_bound(f), 0);
         assert_eq!(solver.upper_bound(f), 14);
 
-        let notification_status = solver.increase_lower_bound_and_notify(&mut propagator, 4, e, 3);
+        let notification_status = solver.increase_lower_bound_and_notify(propagator, 4, e, 3);
         assert!(match notification_status {
             EnqueueDecision::Enqueue => true,
             EnqueueDecision::Skip => false,
         });
-        let result = solver.propagate(&mut propagator);
+        let result = solver.propagate(propagator);
         assert!(result.is_ok());
         assert_eq!(solver.lower_bound(f), 10);
     }
@@ -695,15 +690,16 @@ mod tests {
         assert_eq!(solver.lower_bound(s1), 1);
         assert_eq!(solver.upper_bound(s1), 1);
 
-        let reason = solver.get_reason_int(predicate!(s2 >= 5)).clone();
+        let reason = solver.get_reason_int(predicate!(s2 >= 5));
         assert_eq!(
-            PropositionalConjunction::from(vec![
-                predicate!(s2 >= 4),
-                predicate!(s1 >= 1),
-                predicate!(s1 <= 1), /* Note that this not the most general explanation, if s2
-                                      * could have started at 0 then it would still have
-                                      * overlapped with the current interval */
-            ]),
+            conjunction!([s2 >= 4] & [s1 >= 1] & [s1 <= 1]).as_slice(), /* Note that this not
+                                                                         * the most general
+                                                                         * explanation, if s2
+                                                                         * could have started at
+                                                                         * 0 then it would still
+                                                                         * have
+                                                                         * overlapped with the
+                                                                         * current interval */
             reason
         );
     }
@@ -750,14 +746,13 @@ mod tests {
         assert_eq!(solver.lower_bound(s1), 3);
         assert_eq!(solver.upper_bound(s1), 3);
 
-        let reason = solver.get_reason_int(predicate!(s3 >= 7)).clone();
+        let reason = solver.get_reason_int(predicate!(s3 >= 7));
         assert_eq!(
-            PropositionalConjunction::from(vec![
-                predicate!(s2 <= 5),
-                predicate!(s2 >= 5),
-                predicate!(s3 >= 6), /* Note that s3 would have been able to propagate
-                                      * this bound even if it started at time 0 */
-            ]),
+            conjunction!([s2 <= 5] & [s2 >= 5] & [s3 >= 6]).as_slice(), /* Note that s3 would
+                                                                         * have been able to
+                                                                         * propagate
+                                                                         * this bound even if it
+                                                                         * started at time 0 */
             reason
         );
     }
@@ -799,11 +794,8 @@ mod tests {
 
         for removed in 2..8 {
             assert!(!solver.contains(s2, removed));
-            let reason = solver.get_reason_int(predicate!(s2 != removed)).clone();
-            assert_eq!(
-                PropositionalConjunction::from(vec![predicate!(s1 <= 4), predicate!(s1 >= 4),]),
-                reason
-            );
+            let reason = solver.get_reason_int(predicate!(s2 != removed));
+            assert_eq!(conjunction!([s1 <= 4] & [s1 >= 4]).as_slice(), reason);
         }
     }
 }

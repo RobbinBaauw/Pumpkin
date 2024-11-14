@@ -64,6 +64,8 @@ pub mod options {
     pub use crate::basic_types::sequence_generators::SequenceGeneratorType;
     pub use crate::engine::RestartOptions;
     pub use crate::engine::SatisfactionSolverOptions as SolverOptions;
+    pub use crate::propagators::nogoods::LearnedNogoodSortingStrategy;
+    pub use crate::propagators::nogoods::LearningOptions;
     pub use crate::propagators::CumulativeExplanationType;
     pub use crate::propagators::CumulativeOptions;
     pub use crate::propagators::CumulativePropagationMethod;
@@ -72,7 +74,7 @@ pub mod options {
 }
 
 pub mod conflict_resolution {
-    pub use crate::engine::conflict_analysis::ConflictAnalysisNogoodContext;
+    pub use crate::engine::conflict_analysis::ConflictAnalysisContext;
     pub use crate::engine::conflict_analysis::ConflictResolver;
     pub use crate::engine::conflict_analysis::LearnedNogood;
     pub use crate::engine::conflict_analysis::NoLearningResolver;

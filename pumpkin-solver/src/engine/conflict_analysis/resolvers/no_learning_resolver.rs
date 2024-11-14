@@ -1,5 +1,6 @@
 use super::ConflictResolver;
-use crate::engine::conflict_analysis::{ConflictAnalysisNogoodContext, ConflictResolveResult};
+use crate::engine::conflict_analysis::ConflictAnalysisContext;
+use crate::engine::conflict_analysis::ConflictResolveResult;
 use crate::pumpkin_assert_simple;
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -8,14 +9,14 @@ pub struct NoLearningResolver;
 impl ConflictResolver for NoLearningResolver {
     fn resolve_conflict(
         &mut self,
-        _context: &mut ConflictAnalysisNogoodContext,
+        _context: &mut ConflictAnalysisContext,
     ) -> Option<ConflictResolveResult> {
         None
     }
 
     fn process(
         &mut self,
-        context: &mut ConflictAnalysisNogoodContext,
+        context: &mut ConflictAnalysisContext,
         resolve_result: &Option<ConflictResolveResult>,
     ) -> Result<(), ()> {
         pumpkin_assert_simple!(resolve_result.is_none());

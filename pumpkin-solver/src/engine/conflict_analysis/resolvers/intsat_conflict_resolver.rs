@@ -4,7 +4,7 @@ use crate::engine::cp::propagation::linear_constraint::LinearConstraint;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
 use crate::variables::{DomainId, TransformableVariable};
 use std::collections::HashMap;
-use crate::conflict_resolution::{ConflictAnalysisNogoodContext, ConflictResolver, LearnedNogood, ResolutionResolver};
+use crate::conflict_resolution::{ConflictAnalysisContext, ConflictResolver, LearnedNogood, ResolutionResolver};
 use crate::engine::conflict_analysis::{ConflictResolveResult, LearnedConstraint};
 use crate::engine::conflict_analysis::ConflictResolveResult::{Constraint, Nogood};
 use crate::engine::propagation::PropagatorInitialisationContext;
@@ -105,7 +105,13 @@ fn apply_cut(var: DomainId, c1: &LinearConstraint, c2: &LinearConstraint) -> Cut
 }
 
 impl ConflictResolver for IntSatConflictResolver {
-    fn resolve_conflict(&mut self, context: &mut ConflictAnalysisNogoodContext) -> Option<ConflictResolveResult> {
+    fn resolve_conflict(&mut self, context: &mut ConflictAnalysisContext) -> Option<ConflictResolveResult> {
+        if context.is_completing_proof {
+            // TODO implement this for intsat
+            println!("==> Completing proof, trying resolution");
+            return self.resolution_resolver.resolve_conflict(context);
+        }
+
         println!("PERFORMING CONFLICT ANALYSIS WITH TRAIL");
         for i in 0..context.assignments.num_trail_entries() {
             let entry = context.assignments.get_trail_entry(i);
@@ -123,7 +129,7 @@ impl ConflictResolver for IntSatConflictResolver {
 
         let mut conflicting_constraint = match context.solver_state.get_conflict_info() {
             StoredConflictInfo::Propagator { propagator_id, .. } => {
-                let propagator = &context.propagators[*propagator_id];
+                let propagator = &context.propagators[propagator_id];
 
                 match propagator.linear_inequality_explanation() {
                     None => {
@@ -283,7 +289,7 @@ impl ConflictResolver for IntSatConflictResolver {
         }
     }
 
-    fn process(&mut self, context: &mut ConflictAnalysisNogoodContext, resolve_result: &Option<ConflictResolveResult>) -> Result<(), ()> {
+    fn process(&mut self, context: &mut ConflictAnalysisContext, resolve_result: &Option<ConflictResolveResult>) -> Result<(), ()> {
         let resolve_result_unwrap = resolve_result.as_ref().expect("Expected nogood / constraint");
 
         let Constraint(learned_constraint) = resolve_result_unwrap else {
