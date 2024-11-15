@@ -1,3 +1,0 @@
-[submodule "pumpkin-solver/benchmarks/minizinc-benchmarks"]
-	path = pumpkin-solver/benchmarks/minizinc-benchmarks
-	url = git@github.com:MiniZinc/minizinc-benchmarks.git
