@@ -14,7 +14,7 @@ use crate::engine::propagation::propagation_context::PropagationContextMut;
 use crate::engine::Assignments;
 #[cfg(doc)]
 use crate::engine::ConstraintSatisfactionSolver;
-use crate::engine::cp::propagation::linear_constraint::LinearConstraint;
+use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::predicates::Predicate;
 use crate::predicates::PropositionalConjunction;
 #[cfg(doc)]
@@ -173,7 +173,7 @@ pub trait Propagator: Downcast {
         );
     }
 
-    fn linear_inequality_explanation(&self) -> Option<LinearConstraint> {
+    fn linear_inequality_explanation(&self) -> Option<LinearLessOrEqual> {
         None
     }
 

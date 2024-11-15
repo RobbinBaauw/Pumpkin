@@ -9,7 +9,7 @@ use crate::engine::propagation::LocalId;
 use crate::engine::propagation::PropagationContext;
 use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
-use crate::engine::cp::propagation::linear_constraint::LinearConstraint;
+use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::variables::IntegerVariable;
 use crate::predicate;
@@ -136,7 +136,7 @@ where
         "LinearLeq"
     }
 
-    fn linear_inequality_explanation(&self) -> Option<LinearConstraint> {
+    fn linear_inequality_explanation(&self) -> Option<LinearLessOrEqual> {
         let flat_vars = self.x.iter().map(|var| var.flatten()).collect_vec();
 
         let lhs = flat_vars.iter().map(|var| (var.id, var.scale)).collect_vec();
@@ -144,7 +144,7 @@ where
         let var_offsets = flat_vars.iter().map(|var| var.offset).sum::<i32>();
         let rhs = self.c - var_offsets;
 
-        Some(LinearConstraint { lhs, rhs })
+        Some(LinearLessOrEqual { lhs, rhs })
     }
 
     fn propagate(&mut self, mut context: PropagationContextMut) -> PropagationStatusCP {

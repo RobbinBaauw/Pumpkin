@@ -8,7 +8,8 @@ create_statistics_struct!(
         /// Core statistics of the solver engine (e.g. the number of decisions)
         engine_statistics: EngineStatistics,
         /// The statistics related to clause learning
-        learned_clause_statistics: LearnedClauseStatistics
+        learned_clause_statistics: LearnedClauseStatistics,
+        intsat_statistics: IntSatStatistics,
     }
 );
 
@@ -41,5 +42,14 @@ create_statistics_struct!(
         /// The average length of the learned clauses
         average_learned_clause_length: CumulativeMovingAverage,
         /// The average number of levels which have been backtracked by the solver (e.g. when a learned clause is created)
-         average_backtrack_amount: CumulativeMovingAverage,
+        average_backtrack_amount: CumulativeMovingAverage,
 });
+
+create_statistics_struct!(
+    IntSatStatistics {
+        intsat_learned_constraints: u64,
+        intsat_learned_constraints_avg_length: CumulativeMovingAverage,
+        intsat_constraint_avg_lhs_coeff: CumulativeMovingAverage,
+        resolution_propagated_nogoods: u64
+    }
+);

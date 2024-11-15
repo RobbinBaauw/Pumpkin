@@ -444,6 +444,8 @@ impl ResolutionResolver {
                 .on_appearance_in_conflict_predicate(*predicate);
         }
 
+        context.counters.intsat_statistics.resolution_propagated_nogoods += 1;
+
         LearnedNogood {
             backjump_level,
             predicates: if self.only_propagate { vec![clean_nogood[0]] } else { clean_nogood },

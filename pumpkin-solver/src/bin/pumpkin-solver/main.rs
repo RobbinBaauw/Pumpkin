@@ -28,6 +28,7 @@ use parsers::dimacs::SolverArgs;
 use parsers::dimacs::SolverDimacsSink;
 use pumpkin_solver::conflict_resolution::NoLearningResolver;
 use pumpkin_solver::conflict_resolution::ResolutionResolver;
+use pumpkin_solver::conflict_resolution::IntSatConflictResolver;
 use pumpkin_solver::options::*;
 use pumpkin_solver::proof::Format;
 use pumpkin_solver::proof::ProofLog;
@@ -351,6 +352,12 @@ struct Args {
     #[arg(long = "no-learning")]
     no_learning: bool,
 
+    /// Determines whether the solver uses IntSat conflict resolution
+    ///
+    /// Possible values: bool
+    #[arg(long = "use-intsat")]
+    use_intsat: bool,
+
     /// Determines whether incremental backtracking is applied or whether the cumulative
     /// propagators compute the time-table from scratch upon backtracking
     ///
@@ -532,6 +539,15 @@ fn run() -> PumpkinResult<()> {
             random_generator,
             proof_log,
             conflict_resolver: Box::new(NoLearningResolver),
+            learning_options,
+        }
+    } else if args.use_intsat {
+        SolverOptions {
+            restart_options,
+            learning_clause_minimisation,
+            random_generator,
+            proof_log,
+            conflict_resolver: Box::new(IntSatConflictResolver::default()),
             learning_options,
         }
     } else {

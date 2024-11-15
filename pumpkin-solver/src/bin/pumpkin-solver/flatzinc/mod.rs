@@ -36,16 +36,16 @@ const MSG_UNKNOWN: &str = "=====UNKNOWN=====";
 const MSG_UNSATISFIABLE: &str = "=====UNSATISFIABLE=====";
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct FlatZincOptions {
+pub struct FlatZincOptions {
     /// If `true`, the solver will not strictly keep to the search annotations in the flatzinc.
-    pub(crate) free_search: bool,
+    pub free_search: bool,
 
     /// For satisfaction problems, print all solutions. For optimisation problems, this instructs
     /// the solver to print intermediate solutions.
-    pub(crate) all_solutions: bool,
+    pub all_solutions: bool,
 
     /// Options used for the cumulative constraint (see [`cumulative`]).
-    pub(crate) cumulative_options: CumulativeOptions,
+    pub cumulative_options: CumulativeOptions,
 }
 
 #[cfg(test)]
@@ -60,7 +60,7 @@ impl Default for FlatZincOptions {
     }
 }
 
-pub(crate) fn solve(
+pub fn solve(
     mut solver: Solver,
     instance: impl AsRef<Path>,
     time_limit: Option<Duration>,

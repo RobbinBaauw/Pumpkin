@@ -112,6 +112,12 @@ fn pigeonhole(solver: &mut Solver) -> Vec<DomainId> {
 }
 
 fn main() {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Debug)
+        .format_target(false)
+        .format_timestamp(None)
+        .init();
+
     let mut solver = Solver::default();
 
     configure_statistic_logging("stat", None, None, None);

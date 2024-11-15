@@ -79,6 +79,7 @@ pub mod conflict_resolution {
     pub use crate::engine::conflict_analysis::LearnedNogood;
     pub use crate::engine::conflict_analysis::NoLearningResolver;
     pub use crate::engine::conflict_analysis::ResolutionResolver;
+    pub use crate::engine::conflict_analysis::IntSatConflictResolver;
 }
 
 pub mod termination {

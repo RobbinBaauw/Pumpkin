@@ -4,12 +4,12 @@ use crate::engine::Assignments;
 use crate::variables::{AffineView, DomainId, IntegerVariable, TransformableVariable};
 
 #[derive(Default, Debug, Clone)]
-pub struct LinearConstraint {
+pub struct LinearLessOrEqual {
     pub lhs: Vec<(DomainId, i32)>,
     pub rhs: i32,
 }
 
-impl LinearConstraint {
+impl LinearLessOrEqual {
     pub fn contains_variable(&self, variable: DomainId) -> bool {
         self.lhs.iter().find(|(var, _)| *var == variable).is_some()
     }
@@ -73,7 +73,7 @@ impl LinearConstraint {
     }
 }
 
-impl Display for LinearConstraint {
+impl Display for LinearLessOrEqual {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let lhs_mapped = self.lhs.iter().sorted_by_key(|(var, _)| var.id).filter_map(|(v, s)| {
             return if *s == 0 {
@@ -86,6 +86,12 @@ impl Display for LinearConstraint {
                 Some(format!("{s}{v}"))
             }
         }).join(" + ");
-        write!(f, "{lhs_mapped} <= {:?}", self.rhs)
+        let mut res = format!("{lhs_mapped} <= {:?}", self.rhs);
+        if res.len() > 10000000 {
+            res.truncate(300);
+            write!(f, "{}...", res)
+        } else {
+            write!(f, "{}", res)
+        }
     }
 }
