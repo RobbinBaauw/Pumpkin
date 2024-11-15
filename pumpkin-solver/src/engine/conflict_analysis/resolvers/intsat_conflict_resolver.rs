@@ -37,7 +37,7 @@ fn div_ceil(num: i32, div: i32) -> i32 {
 }
 
 enum CutResult {
-    Tautology,
+    NothingLearned,
     Overflow,
     Contradiction,
     Success { inequality: LinearLessOrEqual, skip_early_backjump: bool}
@@ -83,7 +83,13 @@ fn apply_cut(var: DomainId, c1: &LinearLessOrEqual, c2: &LinearLessOrEqual) -> C
     let Some(c2_rhs_scaled) = c2.rhs.checked_mul(mult_c2) else { return CutResult::Overflow; };
     let Some(mut new_rhs) = c1_rhs_scaled.checked_add(c2_rhs_scaled) else { return CutResult::Overflow };
 
-    if new_lhs.len() == 0 { return CutResult::Contradiction; }
+    if new_lhs.len() == 0 {
+        return if new_rhs < 0 {
+            CutResult::Contradiction
+        } else {
+            CutResult::NothingLearned
+        }
+    }
 
     // Normalization
     let mut new_gcd = new_lhs.iter()
@@ -110,6 +116,7 @@ impl ConflictResolver for IntSatConflictResolver {
         if context.is_completing_proof {
             // TODO implement this for intsat
             debug!("==> Completing proof, trying resolution");
+            context.counters.intsat_statistics.intsat_fallback_used += 1;
             return self.resolution_resolver.resolve_conflict(context);
         }
 
@@ -135,6 +142,7 @@ impl ConflictResolver for IntSatConflictResolver {
                 match propagator.linear_inequality_explanation() {
                     None => {
                         debug!("==> Conflict caused by propagator that cannot explain with linear inequality, trying resolution");
+                        context.counters.intsat_statistics.intsat_fallback_used += 1;
                         return self.resolution_resolver.resolve_conflict(context);
                     }
                     Some(prop_constraint_expl) => prop_constraint_expl
@@ -148,6 +156,7 @@ impl ConflictResolver for IntSatConflictResolver {
                 match propagator.linear_inequality_explanation() {
                     None => {
                         debug!("==> Empty domain caused by propagator that cannot explain with linear inequality, trying resolution");
+                        context.counters.intsat_statistics.intsat_fallback_used += 1;
                         return self.resolution_resolver.resolve_conflict(context);
                     }
                     Some(prop_constraint_expl) => prop_constraint_expl
@@ -173,6 +182,7 @@ impl ConflictResolver for IntSatConflictResolver {
                 if trail_entry.reason.is_none() {
                     // When a decision is reached, and we haven't found a conflicting solution yet, skip
                     debug!("==>==> Decision reached, trying resolution");
+                    context.counters.intsat_statistics.intsat_fallback_used += 1;
                     return self.resolution_resolver.resolve_conflict(context);
                 }
 
@@ -223,30 +233,31 @@ impl ConflictResolver for IntSatConflictResolver {
                 // TODO think this through a bit more to see if it's nice
 
                 debug!("==>==> Detected nogoods, performing resolution");
+                context.counters.intsat_statistics.intsat_fallback_used += 1;
                 return self.resolution_resolver.resolve_conflict(context);
             }
 
             let prop_constraint_expl = prop_constraint_expl_opt.unwrap();
             debug!("==>==> Merging with {:?}: {prop_constraint_expl}", trail_entry.predicate.get_domain());
 
-            // TODO updating activities
-
             // Note to self: it's not required to check whether we need to invert when only dealing with linear inequalities
             // You can only get a conflict if the propagation is made for the same variable with a different sign
             // If it "helps" the other constraint increase its slack, it will never cause a conflict
             let (new_conflicting_constraint, skip_early_backjump) = match apply_cut(trail_entry.predicate.get_domain(), &conflicting_constraint, &prop_constraint_expl) {
-                CutResult::Tautology => {
-                    debug!("==>==> Tautology, trying resolution!");
+                CutResult::NothingLearned => {
+                    debug!("==>==> Nothing learned, trying resolution!");
+                    context.counters.intsat_statistics.intsat_fallback_used += 1;
                     return self.resolution_resolver.resolve_conflict(context);
                 }
                 CutResult::Overflow => {
                     debug!("==>==> Overflow, trying resolution!");
+                    context.counters.intsat_statistics.intsat_fallback_used += 1;
                     return self.resolution_resolver.resolve_conflict(context);
                 }
                 CutResult::Contradiction => {
                     debug!("==>==> Contradiction, unsat!");
                     return Some(Nogood(LearnedNogood {
-                        predicates: vec![Predicate::trivially_false()],
+                        predicates: vec![Predicate::trivially_true()],
                         backjump_level: 0,
                     }));
                 }
@@ -258,6 +269,7 @@ impl ConflictResolver for IntSatConflictResolver {
             // If this new constraint is not false at the current height, skip!
             if !new_conflicting_constraint.is_conflicting(context.assignments, Some(trail_index)) {
                 debug!("==> Not conflicting, trying resolution!");
+                context.counters.intsat_statistics.intsat_fallback_used += 1;
                 return self.resolution_resolver.resolve_conflict(context);
             }
 
@@ -279,6 +291,10 @@ impl ConflictResolver for IntSatConflictResolver {
 
                 if is_propagating_or_false {
                     debug!("==> Backtrack to {backjump_level}: {conflicting_constraint}");
+
+                    // Running resolution resolver to update activities
+                    // Ignore the result
+                    let _ = self.resolution_resolver.resolve_conflict(context);
 
                     context.counters.intsat_statistics.intsat_learned_constraints += 1;
                     context.counters.intsat_statistics.intsat_learned_constraints_avg_length.add_term(conflicting_constraint.lhs.len() as u64);

@@ -89,7 +89,6 @@ pub fn solve(
 
     solver.with_solution_callback(move |solution_callback_arguments| {
         if options.all_solutions || instance.objective_function.is_none() {
-            solution_callback_arguments.log_statistics();
             print_solution_from_solver(solution_callback_arguments.solution, &outputs);
         }
     });

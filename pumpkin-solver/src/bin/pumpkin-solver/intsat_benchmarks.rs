@@ -59,7 +59,6 @@ fn configure_logging_minizinc(stat_header: &'static str, verbose: bool, log_stat
         .target(env_logger::Target::Stdout)
         .init();
 
-    info!("Logging successfully configured");
     Ok(())
 }
 
@@ -67,6 +66,8 @@ static STAT_HEADER: OnceLock<String> = OnceLock::new();
 
 fn main() {
     let args = Args::parse();
+
+    println!("Executing {:?}", args.instance_path.file_name().unwrap());
 
     let stat_header = STAT_HEADER.get_or_init(|| format!("$stat$-I{:?}-SL{:?}", args.use_intsat, args.skip_nogood_learning));
     let _ = configure_logging_minizinc(stat_header, args.verbose, true);

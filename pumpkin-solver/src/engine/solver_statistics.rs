@@ -50,6 +50,6 @@ create_statistics_struct!(
         intsat_learned_constraints: u64,
         intsat_learned_constraints_avg_length: CumulativeMovingAverage,
         intsat_constraint_avg_lhs_coeff: CumulativeMovingAverage,
-        resolution_propagated_nogoods: u64
+        intsat_fallback_used: u64
     }
 );
