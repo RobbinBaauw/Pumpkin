@@ -80,7 +80,7 @@ fn apply_cut(var: DomainId, c1: &LinearLessOrEqual, c2: &LinearLessOrEqual) -> C
     }
 
     let Some(c1_rhs_scaled) = c1.rhs.checked_mul(mult_c1) else { return CutResult::Overflow; };
-    let Some(c2_rhs_scaled) = c2.rhs.checked_mul(mult_c1) else { return CutResult::Overflow; };
+    let Some(c2_rhs_scaled) = c2.rhs.checked_mul(mult_c2) else { return CutResult::Overflow; };
     let Some(mut new_rhs) = c1_rhs_scaled.checked_add(c2_rhs_scaled) else { return CutResult::Overflow };
 
     if new_lhs.len() == 0 { return CutResult::Contradiction; }
