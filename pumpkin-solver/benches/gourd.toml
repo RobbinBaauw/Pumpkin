@@ -4,6 +4,11 @@ experiments_folder = "experiments"
 wrapper = "gourd_wrapper"
 warn_on_label_overlap = false
 
+[slurm]
+experiment_name = "intsat_bench_1"
+partition = "compute"
+account = "Education-EEMCS-MSc-CS"
+
 [resource_limits]
 time_limit = "1h"
 cpus = 1
@@ -11,61 +16,21 @@ mem_per_cpu = 16384
 
 [program]
 [program.resolution]
-binary = "/home/robbin/src/TU/Afstuderen/Pumpkin/target/release/pumpkin-solver"
-arguments = ["--log-statistics", "--time-limit", "180000"]
-afterscript = "/home/robbin/src/TU/Afstuderen/Thesis/basic_resolution_comp/afterscript_cli.py"
+binary = "./intsat_benchmarks"
+arguments = []
+afterscript = "./afterscript.py"
 
 [program.intsat-nolearn]
-binary = "/home/robbin/src/TU/Afstuderen/Pumpkin-orig/target/release/pumpkin-solver"
-arguments = ["--log-statistics", "--time-limit", "180000"]
-afterscript = "/home/robbin/src/TU/Afstuderen/Thesis/basic_resolution_comp/afterscript_cli.py"
+binary = "./intsat_benchmarks"
+arguments = ["--use-intsat", "--skip-nogood-learning"]
+afterscript = "./afterscript.py"
 
 [program.intsat-learn]
-binary = "/home/robbin/src/TU/Afstuderen/Pumpkin-orig/target/release/pumpkin-solver"
-arguments = ["--log-statistics", "--time-limit", "180000"]
-afterscript = "/home/robbin/src/TU/Afstuderen/Thesis/basic_resolution_comp/afterscript_cli.py"
+binary = "./intsat_benchmarks"
+arguments = ["--use-intsat"]
+afterscript = "./afterscript.py"
 
 [input]
 
-[input.BrazilInstance1_xml_wcnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/BrazilInstance1.xml.wcnf"]
-
-[input.BrazilInstance2_xml_wcnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/BrazilInstance2.xml.wcnf"]
-
-[input.BrazilInstance7_xml_wcnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/BrazilInstance7.xml.wcnf"]
-
-[input.hole6_cnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/hole6.cnf"]
-
-[input.unsat-sample_cnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/unsat-sample.cnf"]
-
-[input.hole7_cnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/hole7.cnf"]
-
-[input.hole8_cnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/hole8.cnf"]
-
-[input.hole9_cnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/hole9.cnf"]
-
-[input.hole10_cnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/hole10.cnf"]
-
-[input.Instance1_11200_wcnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/Instance1_11200.wcnf"]
-
-[input.ItalyInstance1_xml_wcnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/ItalyInstance1.xml.wcnf"]
-
-[input.simple_wcnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/simple.wcnf"]
-
-[input.test1_cnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/test1.cnf"]
-
-
-[input.v100c500_cnf]
-arguments = ["/home/robbin/src/TU/Afstuderen/Pumpkin/instances/v100c500.cnf"]
+[inputs.minizinc]
+arguments = ["glob|./benchmark-set/**/*.fzn"]
