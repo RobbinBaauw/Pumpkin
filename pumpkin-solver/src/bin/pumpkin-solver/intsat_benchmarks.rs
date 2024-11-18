@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 use clap::Parser;
-use log::{info, warn, LevelFilter};
+use log::{warn, LevelFilter};
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use pumpkin_solver::options::{CumulativeOptions, LearningOptions, RestartOptions, SolverOptions};
@@ -78,13 +78,16 @@ fn main() {
         warn!("Potential performance degradation: the Pumpkin assert level is set to {}, meaning many debug asserts are active which may result in performance degradation.", pumpkin_solver::asserts::PUMPKIN_ASSERT_LEVEL_DEFINITION);
     };
 
+    let mut learning_options = LearningOptions::default();
+    learning_options.skip_nogood_learning = args.skip_nogood_learning;
+
     let solver_options = SolverOptions {
         restart_options: RestartOptions::default(),
         learning_clause_minimisation: true,
         random_generator: SmallRng::seed_from_u64(42),
         proof_log: ProofLog::default(),
         conflict_resolver: if args.use_intsat { IntSat } else { UIP },
-        learning_options: LearningOptions::default(),
+        learning_options,
     };
 
     let time_limit = args.time_limit.map(Duration::from_millis);

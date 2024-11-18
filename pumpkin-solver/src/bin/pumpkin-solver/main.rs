@@ -325,12 +325,6 @@ struct Args {
     #[arg(long, value_enum, default_value_t)]
     conflict_resolver: ConflictResolver,
 
-    /// Determines whether the solver uses IntSat conflict resolution
-    ///
-    /// Possible values: bool
-    #[arg(long = "use-intsat")]
-    use_intsat: bool,
-
     /// Determines whether incremental backtracking is applied or whether the cumulative
     /// propagators compute the time-table from scratch upon backtracking
     ///

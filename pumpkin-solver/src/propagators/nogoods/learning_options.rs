@@ -20,6 +20,8 @@ pub struct LearningOptions {
     pub nogood_sorting_strategy: LearnedNogoodSortingStrategy,
     /// Specifies by how much the activity is increased when a nogood is bumped.
     pub activity_bump_increment: f32,
+    /// Whether to skip nogood learning to mimic IntSat
+    pub skip_nogood_learning: bool,
 }
 impl Default for LearningOptions {
     fn default() -> Self {
@@ -30,6 +32,7 @@ impl Default for LearningOptions {
             nogood_sorting_strategy: LearnedNogoodSortingStrategy::Lbd,
             lbd_threshold: 5,
             activity_bump_increment: 1.0,
+            skip_nogood_learning: false,
         }
     }
 }

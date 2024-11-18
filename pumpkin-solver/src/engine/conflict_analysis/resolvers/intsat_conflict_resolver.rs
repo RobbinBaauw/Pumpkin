@@ -18,14 +18,6 @@ pub struct IntSatConflictResolver {
     resolution_resolver: ResolutionResolver,
 }
 
-impl IntSatConflictResolver {
-    pub fn new(only_propagate: bool) -> Self {
-        let mut resolver = ResolutionResolver::default();
-        resolver.only_propagate = only_propagate;
-        IntSatConflictResolver { resolution_resolver: resolver }
-    }
-}
-
 fn div_ceil(num: i32, div: i32) -> i32 {
     let d = num / div;
     let r = num % div;

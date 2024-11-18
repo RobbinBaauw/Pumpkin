@@ -38,9 +38,6 @@ pub(crate) struct ResolutionResolver {
     processed_nogood_predicates: Vec<Predicate>,
     /// A minimiser which recursively determines whether a predicate is redundant in the nogood
     recursive_minimiser: RecursiveMinimiser,
-    /// Is set to true if it shouldn't learn anything, only propagate.
-    /// Used as a test for the IntSat conflict analyser.
-    pub(crate) only_propagate: bool,
     /// Whether the resolver employs 1-UIP or all-decision learning.
     mode: AnalysisMode,
 }
@@ -461,7 +458,7 @@ impl ResolutionResolver {
 
         LearnedNogood {
             backjump_level,
-            predicates: if self.only_propagate { vec![clean_nogood[0]] } else { clean_nogood },
+            predicates: clean_nogood,
         }
     }
 }

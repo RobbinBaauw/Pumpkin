@@ -1,6 +1,6 @@
 use std::ops::Not;
 
-use log::{debug, warn};
+use log::warn;
 
 use super::LearnedNogoodSortingStrategy;
 use super::LearningOptions;
@@ -264,18 +264,11 @@ impl NogoodPropagator {
                 "A unit nogood should have backtracked to the root-level"
             );
 
-            debug!("==>==> Propagating {:?}", !nogood[0]);
-            // Propagates the one nogood, doesn't learn anything else
-            context.post_predicate(!nogood[0], conjunction!()).expect("Oopsie");
-
-            // TODO
-            // self.add_permanent_nogood(nogood, context)
-            //     .expect("Unit learned nogoods cannot fail.");
+            self.add_permanent_nogood(nogood, context)
+                .expect("Unit learned nogoods cannot fail.");
 
             return;
         }
-
-        debug!("==>==> Learning nogood {:?}", nogood);
 
         // Skip the zero-th predicate since it is unassigned,
         // but will be assigned at the level of the predicate at index one.

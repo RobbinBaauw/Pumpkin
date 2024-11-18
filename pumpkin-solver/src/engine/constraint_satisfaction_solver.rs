@@ -7,14 +7,14 @@ use std::time::Instant;
 
 use clap::ValueEnum;
 use drcp_format::steps::StepId;
+use log::debug;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
-use super::conflict_analysis::AnalysisMode;
+use super::conflict_analysis::{AnalysisMode, IntSatConflictResolver};
 use super::conflict_analysis::ConflictAnalysisContext;
 use super::conflict_analysis::LearnedNogood;
 use super::conflict_analysis::NoLearningResolver;
-use super::conflict_analysis::IntSatConflictResolver;
 use super::conflict_analysis::SemanticMinimiser;
 use super::nogoods::Lbd;
 use super::propagation::store::PropagatorStore;
@@ -53,7 +53,7 @@ use crate::engine::DebugHelper;
 use crate::engine::IntDomainEvent;
 use crate::engine::RestartOptions;
 use crate::engine::RestartStrategy;
-use crate::predicate;
+use crate::{conjunction, predicate};
 use crate::proof::ProofLog;
 use crate::propagators::nogoods::LearningOptions;
 use crate::propagators::nogoods::NogoodPropagator;
@@ -178,7 +178,7 @@ pub enum ConflictResolver {
     NoLearning,
     #[default]
     UIP,
-    IntSat
+    IntSat,
 }
 
 /// Options for the [`Solver`] which determine how it behaves.
@@ -979,11 +979,17 @@ impl ConstraintSatisfactionSolver {
             Self::get_nogood_propagator_id(),
         );
 
-        ConstraintSatisfactionSolver::add_asserting_nogood_to_nogood_propagator(
-            &mut self.propagators[Self::get_nogood_propagator_id()],
-            learned_nogood.predicates,
-            &mut context,
-        )
+        if self.internal_parameters.learning_options.skip_nogood_learning {
+            debug!("==>==> Propagating {:?}", !learned_nogood.predicates[0]);
+            context.post_predicate(!learned_nogood.predicates[0], conjunction!()).expect("Oopsie");
+        } else {
+            debug!("==>==> Learning nogood {:?}", learned_nogood.predicates);
+            ConstraintSatisfactionSolver::add_asserting_nogood_to_nogood_propagator(
+                &mut self.propagators[Self::get_nogood_propagator_id()],
+                learned_nogood.predicates,
+                &mut context,
+            )
+        }
     }
 
     pub(crate) fn add_asserting_nogood_to_nogood_propagator(
