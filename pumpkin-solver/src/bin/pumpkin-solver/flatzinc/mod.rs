@@ -94,7 +94,6 @@ pub fn solve(
                 let optimal_objective_value =
                     optimal_solution.get_integer_value(*objective_function.get_domain());
                 if !options.all_solutions {
-                    solver.log_statistics();
                     print_solution_from_solver(&optimal_solution, &instance.outputs)
                 }
                 println!("==========");

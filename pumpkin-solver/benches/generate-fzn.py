@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Optional
 
 BENCH_DIR = Path(__file__).parent / "minizinc-benchmarks"
-BENCH_SET_DIR = Path(__file__).parent / "benchmark-set"
+BENCH_SET_DIR = Path(__file__).parent / "benchmarks-set"
 
 PUMPKIN_SOLVER = Path(__file__).parent.parent.parent / "minizinc" / "pumpkin-linear-ineq.msc"
 
-TOTAL_SAMPLES = 5000
+TOTAL_SAMPLES = 500
 
-thread_pool = ThreadPool()
+thread_pool = ThreadPool(12)
 
 
 def find_fzn_name_path(mzn_path: Path, dzn_path: Optional[Path]):
@@ -40,7 +40,7 @@ def worker_generate(mzn_path: Path, dzn_path: Optional[Path]):
     fzn_name, fzn_path = find_fzn_name_path(mzn_path, dzn_path)
 
     if fzn_path.exists():
-        print(f"({multiprocessing.current_process().name}) Already exists, skip!")
+        print(f"({fzn_name}) Already exists, skip!")
         return
 
     print(f"({multiprocessing.current_process().name}) Generating {fzn_path}")
@@ -52,11 +52,14 @@ def worker_generate(mzn_path: Path, dzn_path: Optional[Path]):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     try:
-        p.communicate(timeout=10)
-        print(f"({multiprocessing.current_process().name}) Done, next!")
+        stdout, stderr = p.communicate(timeout=10)
+        if p.returncode != 0:
+            print(f"({fzn_name}) Error! {stderr}")
+        else:
+            print(f"({fzn_name}) Done, next!")
     except subprocess.TimeoutExpired as e:
         p.kill()
-        print(f"({multiprocessing.current_process().name}) Timeout, skip!")
+        print(f"({fzn_name}) Timeout, skip!")
 
 
 def search_dir(dir_path: Path):
@@ -81,6 +84,8 @@ def generate_fzn():
 
 
 def select_fzn():
+    BENCH_SET_DIR.mkdir(exist_ok=True)
+
     mzn_dzn_files = []
 
     for f in BENCH_DIR.iterdir():
@@ -98,26 +103,35 @@ def select_fzn():
     bench_idx = defaultdict(lambda: 0)
 
     def add_next_file(mzn, dzns):
-        dzn_idx = bench_idx[mzn_idx]
+        while True:
+            dzn_idx = bench_idx[mzn_idx]
 
-        if dzn_idx >= len(dzns):
-            return
-        else:
-            bench_idx[mzn_idx] += 1
+            if dzn_idx >= len(dzns):
+                return
+            else:
+                bench_idx[mzn_idx] += 1
 
-            _, fzn_path = find_fzn_name_path(mzn, dzns[dzn_idx])
-            if not fzn_path.exists():
-                return add_next_file(mzn, dzns)
+                fzn_name, fzn_path = find_fzn_name_path(mzn, dzns[dzn_idx])
+                if not fzn_path.exists():
+                    print(f"{fzn_name} doesn't exist, try next")
+                    continue
 
-            mzn_fzn_paths[mzn.parent.name].append(fzn_path)
+                mzn_fzn_paths[mzn.parent.name].append(fzn_path)
+                return
 
-    while sum(map(lambda v: len(v), mzn_fzn_paths.values())) < TOTAL_SAMPLES:
+    prev_size = 0
+    while get_total_values_size(mzn_fzn_paths) < TOTAL_SAMPLES:
         for mzn_idx, (mzn, dzns) in enumerate(mzn_dzn_files):
             add_next_file(mzn, dzns)
 
+        new_size = get_total_values_size(mzn_fzn_paths)
+        if prev_size == new_size:
+            break
+        prev_size = new_size
+
     for (mzn_dir, fzn_paths) in mzn_fzn_paths.items():
         new_dir = BENCH_SET_DIR / mzn_dir
-        new_dir.mkdir()
+        new_dir.mkdir(exist_ok=True)
 
         for path in fzn_paths:
             new_path = new_dir / path.name
@@ -125,7 +139,12 @@ def select_fzn():
                 print(f"Skipping copy of {new_path.name}")
                 continue
 
+            print(f"Copying {new_path.name}")
             shutil.copy(path, new_path)
+
+
+def get_total_values_size(mzn_fzn_paths):
+    return sum(map(lambda v: len(v), mzn_fzn_paths.values()))
 
 
 if __name__ == "__main__":

@@ -18,20 +18,20 @@ mem_per_cpu = 16384
 [program]
 [program.resolution]
 binary = "./intsat_benchmarks"
-arguments = ["--time-limit 3600000"]
-afterscript = "./afterscript.py"
+arguments = ["--time-limit", "3600000"]
 
 [program.intsat-nolearn]
 binary = "./intsat_benchmarks"
-arguments = ["--use-intsat", "--skip-nogood-learning", "--time-limit 3600000"]
-afterscript = "./afterscript.py"
+arguments = ["--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
 
 [program.intsat-learn]
 binary = "./intsat_benchmarks"
-arguments = ["--use-intsat", "--time-limit 3600000"]
-afterscript = "./afterscript.py"
+arguments = ["--use-intsat", "--time-limit", "3600000"]
 
 [input]
 
-[input.minizinc]
-arguments = ["path|./benchmark-set/**/*.fzn"]
+[input.benchmarks]
+arguments = ["path|./benchmarks-set/**/*.fzn"]
+
+[input.examples]
+arguments = ["path|./examples-set/**/*.fzn"]
