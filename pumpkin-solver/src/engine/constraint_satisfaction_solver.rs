@@ -2,18 +2,18 @@
 //! using a Lazy Clause Generation approach.
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::fmt::Formatter;
 use std::num::NonZero;
 use std::time::Instant;
 
+use clap::ValueEnum;
 use drcp_format::steps::StepId;
-use log::warn;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
 use super::conflict_analysis::AnalysisMode;
 use super::conflict_analysis::ConflictAnalysisContext;
 use super::conflict_analysis::LearnedNogood;
+use super::conflict_analysis::NoLearningResolver;
 use super::conflict_analysis::IntSatConflictResolver;
 use super::conflict_analysis::SemanticMinimiser;
 use super::nogoods::Lbd;
@@ -35,7 +35,7 @@ use crate::basic_types::SolutionReference;
 use crate::basic_types::StoredConflictInfo;
 use crate::branching::Brancher;
 use crate::branching::SelectionContext;
-use crate::engine::conflict_analysis::ConflictResolver;
+use crate::engine::conflict_analysis::ConflictResolver as Resolver;
 use crate::engine::cp::PropagatorQueue;
 use crate::engine::cp::WatchListCP;
 use crate::engine::predicates::predicate::Predicate;
@@ -140,6 +140,8 @@ pub struct ConstraintSatisfactionSolver {
     lbd_helper: Lbd,
     /// A map from clause references to nogood step ids in the proof.
     unit_nogood_step_ids: HashMap<Predicate, StepId>,
+    /// The resolver which is used upon a conflict.
+    conflict_resolver: Box<dyn Resolver>,
 }
 
 impl Default for ConstraintSatisfactionSolver {
@@ -152,7 +154,7 @@ impl Default for ConstraintSatisfactionSolver {
 /// 1. In the case of [`CoreExtractionResult::ConflictingAssumption`], two assumptions have been
 ///    given which directly conflict with one another; e.g. if the assumptions `[x, !x]` have been
 ///    given then the result of [`ConstraintSatisfactionSolver::extract_clausal_core`] will be a
-///    [`CoreExtractionResult::ConflictingAssumption`] containing `!x`.
+///    [`CoreExtractionResult::ConflictingAssumption`] containing `x`.
 /// 2. The standard case is when a [`CoreExtractionResult::Core`] is returned which contains (a
 ///    subset of) the assumptions which led to conflict.
 #[derive(Debug, Clone)]
@@ -165,7 +167,22 @@ pub enum CoreExtractionResult {
     Core(Vec<Predicate>),
 }
 
+/// During search, the CP solver will inevitably evaluate partial assignments that violate at
+/// least one constraint. When this happens, conflict resolution is applied to restore the
+/// solver to a state from which it can continue the search.
+///
+/// The manner in which conflict resolution is done greatly impacts the performance of the
+/// solver.
+#[derive(ValueEnum, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ConflictResolver {
+    NoLearning,
+    #[default]
+    UIP,
+    IntSat
+}
+
 /// Options for the [`Solver`] which determine how it behaves.
+#[derive(Debug)]
 pub struct SatisfactionSolverOptions {
     /// The options used by the restart strategy.
     pub restart_options: RestartOptions,
@@ -175,14 +192,10 @@ pub struct SatisfactionSolverOptions {
     pub random_generator: SmallRng,
     /// The proof log for the solver.
     pub proof_log: ProofLog,
-    pub conflict_resolver: Box<dyn ConflictResolver>,
+    /// The resolver used for conflict analysis
+    pub conflict_resolver: ConflictResolver,
+    /// The options which influence the learning of the solver.
     pub learning_options: LearningOptions,
-}
-
-impl Debug for SatisfactionSolverOptions {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SatisfactionSolverOptions").finish()
-    }
 }
 
 impl Default for SatisfactionSolverOptions {
@@ -192,7 +205,7 @@ impl Default for SatisfactionSolverOptions {
             learning_clause_minimisation: true,
             random_generator: SmallRng::seed_from_u64(42),
             proof_log: ProofLog::default(),
-            conflict_resolver: Box::new(IntSatConflictResolver::default()),
+            conflict_resolver: ConflictResolver::default(),
             learning_options: LearningOptions::default(),
         }
     }
@@ -203,24 +216,27 @@ impl ConstraintSatisfactionSolver {
         PropagatorId(0)
     }
 
-    fn process_backtrack_events(&mut self) -> bool {
+    fn process_backtrack_events(
+        watch_list_cp: &mut WatchListCP,
+        backtrack_event_drain: &mut Vec<(IntDomainEvent, DomainId)>,
+        assignments: &mut Assignments,
+        propagators: &mut PropagatorStore,
+    ) -> bool {
         // If there are no variables being watched then there is no reason to perform these
         // operations
-        if self.watch_list_cp.is_watching_any_backtrack_events() {
-            self.backtrack_event_drain
-                .extend(self.assignments.drain_backtrack_domain_events());
+        if watch_list_cp.is_watching_any_backtrack_events() {
+            backtrack_event_drain.extend(assignments.drain_backtrack_domain_events());
 
-            if self.backtrack_event_drain.is_empty() {
+            if backtrack_event_drain.is_empty() {
                 return false;
             }
 
-            for (event, domain) in self.backtrack_event_drain.drain(..) {
-                for propagator_var in self
-                    .watch_list_cp
-                    .get_backtrack_affected_propagators(event, domain)
+            for (event, domain) in backtrack_event_drain.drain(..) {
+                for propagator_var in
+                    watch_list_cp.get_backtrack_affected_propagators(event, domain)
                 {
-                    let propagator = &mut self.propagators[propagator_var.propagator];
-                    let context = PropagationContext::new(&self.assignments);
+                    let propagator = &mut propagators[propagator_var.propagator];
+                    let context = PropagationContext::new(assignments);
 
                     propagator.notify_backtrack(context, propagator_var.variable, event.into())
                 }
@@ -314,14 +330,8 @@ impl ConstraintSatisfactionSolver {
         SolutionReference::new(&self.assignments)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn is_conflicting(&self) -> bool {
         self.state.is_conflicting()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn declare_ready(&mut self) {
-        self.state.declare_ready()
     }
 
     /// Conclude the proof with the unsatisfiable claim.
@@ -356,7 +366,7 @@ impl ConstraintSatisfactionSolver {
             brancher: &mut DummyBrancher,
             semantic_minimiser: &mut self.semantic_minimiser,
             propagators: &mut self.propagators,
-            last_notified_cp_trail_index: self.last_notified_cp_trail_index,
+            last_notified_cp_trail_index: &mut self.last_notified_cp_trail_index,
             watch_list_cp: &mut self.watch_list_cp,
             propagator_queue: &mut self.propagator_queue,
             event_drain: &mut self.event_drain,
@@ -364,10 +374,10 @@ impl ConstraintSatisfactionSolver {
             should_minimise: self.internal_parameters.learning_clause_minimisation,
             proof_log: &mut self.internal_parameters.proof_log,
             is_completing_proof: true,
+            unit_nogood_step_ids: &self.unit_nogood_step_ids,
         };
 
         let result = self
-            .internal_parameters
             .conflict_resolver
             .resolve_conflict(&mut conflict_analysis_context)
             .expect("Should have a nogood");
@@ -400,11 +410,16 @@ impl ConstraintSatisfactionSolver {
             restart_strategy: RestartStrategy::new(solver_options.restart_options),
             propagators: PropagatorStore::default(),
             counters: SolverStatistics::default(),
-            internal_parameters: solver_options,
             variable_names: VariableNames::default(),
             semantic_minimiser: SemanticMinimiser::default(),
             lbd_helper: Lbd::default(),
             unit_nogood_step_ids: Default::default(),
+            conflict_resolver: match solver_options.conflict_resolver {
+                ConflictResolver::NoLearning => Box::new(NoLearningResolver),
+                ConflictResolver::UIP => Box::new(ResolutionResolver::default()),
+                ConflictResolver::IntSat => Box::new(IntSatConflictResolver::default()),
+            },
+            internal_parameters: solver_options,
         };
 
         // As a convention, the assignments contain a dummy domain_id=0, which represents a 0-1
@@ -536,39 +551,16 @@ impl ConstraintSatisfactionSolver {
     /// Creates an integer variable with a domain containing only the values in `values`
     pub fn create_new_integer_variable_sparse(
         &mut self,
-        mut values: Vec<i32>,
+        values: Vec<i32>,
         name: Option<String>,
     ) -> DomainId {
-        assert!(
-            !values.is_empty(),
-            "cannot create a variable with an empty domain"
-        );
+        let domain_id = self.assignments.create_new_integer_variable_sparse(values);
 
-        values.sort();
-        values.dedup();
+        self.watch_list_cp.grow();
 
-        let lower_bound = values[0];
-        let upper_bound = values[values.len() - 1];
-
-        let domain_id = self.create_new_integer_variable(lower_bound, upper_bound, name);
-
-        let mut next_idx = 0;
-        for value in lower_bound..=upper_bound {
-            if value == values[next_idx] {
-                next_idx += 1;
-            } else {
-                self.assignments
-                    .remove_value_from_domain(domain_id, value, None)
-                    .expect("the domain should not be empty");
-            }
+        if let Some(name) = name {
+            self.variable_names.add_integer(domain_id, name);
         }
-        pumpkin_assert_simple!(
-            next_idx == values.len(),
-            "Expected all values to have been processed"
-        );
-
-        self.propagate();
-        pumpkin_assert_simple!(!self.is_conflicting());
 
         domain_id
     }
@@ -639,52 +631,51 @@ impl ConstraintSatisfactionSolver {
             return CoreExtractionResult::Core(vec![]);
         }
 
-        let violated_assumption = self.state.get_violated_assumption();
-
-        if self.assumptions.contains(&violated_assumption)
-            && self.assumptions.contains(&(!violated_assumption))
-            && self
-                .assumptions
-                .iter()
-                .position(|predicate| *predicate == violated_assumption)
-                .unwrap()
-                > self
-                    .assumptions
+        self.assumptions
+            .iter()
+            .enumerate()
+            .find(|(index, assumption)| {
+                self.assumptions
                     .iter()
-                    .position(|predicate| *predicate == !violated_assumption)
-                    .unwrap()
-        {
-            CoreExtractionResult::ConflictingAssumption(violated_assumption)
-        } else {
-            let mut conflict_analysis_context = ConflictAnalysisContext {
-                assignments: &mut self.assignments,
-                counters: &mut self.counters,
-                solver_state: &mut self.state,
-                reason_store: &mut self.reason_store,
-                brancher,
-                semantic_minimiser: &mut self.semantic_minimiser,
-                propagators: &mut self.propagators,
-                last_notified_cp_trail_index: self.last_notified_cp_trail_index,
-                watch_list_cp: &mut self.watch_list_cp,
-                propagator_queue: &mut self.propagator_queue,
-                event_drain: &mut self.event_drain,
-                backtrack_event_drain: &mut self.backtrack_event_drain,
-                should_minimise: self.internal_parameters.learning_clause_minimisation,
-                proof_log: &mut self.internal_parameters.proof_log,
-                is_completing_proof: false,
-            };
+                    .skip(index + 1)
+                    .any(|other_assumptiion| {
+                        assumption.is_mutually_exclusive_with(*other_assumptiion)
+                    })
+            })
+            .map(|(_, conflicting_assumption)| {
+                CoreExtractionResult::ConflictingAssumption(*conflicting_assumption)
+            })
+            .unwrap_or_else(|| {
+                let mut conflict_analysis_context = ConflictAnalysisContext {
+                    assignments: &mut self.assignments,
+                    counters: &mut self.counters,
+                    solver_state: &mut self.state,
+                    reason_store: &mut self.reason_store,
+                    brancher,
+                    semantic_minimiser: &mut self.semantic_minimiser,
+                    propagators: &mut self.propagators,
+                    last_notified_cp_trail_index: &mut self.last_notified_cp_trail_index,
+                    watch_list_cp: &mut self.watch_list_cp,
+                    propagator_queue: &mut self.propagator_queue,
+                    event_drain: &mut self.event_drain,
+                    backtrack_event_drain: &mut self.backtrack_event_drain,
+                    should_minimise: self.internal_parameters.learning_clause_minimisation,
+                    proof_log: &mut self.internal_parameters.proof_log,
+                    is_completing_proof: false,
+                    unit_nogood_step_ids: &self.unit_nogood_step_ids,
+                };
 
-            let mut resolver = ResolutionResolver::with_mode(AnalysisMode::AllDecision);
+                let mut resolver = ResolutionResolver::with_mode(AnalysisMode::AllDecision);
 
-            let resolve_result = resolver
-                .resolve_conflict(&mut conflict_analysis_context)
-                .expect("Expected core extraction to be able to extract a core");
+                let resolve_result = resolver
+                    .resolve_conflict(&mut conflict_analysis_context)
+                    .expect("Expected core extraction to be able to extract a core");
 
-            match resolve_result {
-                Nogood(learned_nogood) => CoreExtractionResult::Core(learned_nogood.predicates.clone()),
-                Constraint(_) => unreachable!("Shouldn't be possible")
-            }
-        }
+                match resolve_result {
+                    Nogood(learned_nogood) => CoreExtractionResult::Core(learned_nogood.predicates.clone()),
+                    Constraint(_) => unreachable!("Shouldn't be possible")
+                }
+            })
     }
 
     pub fn get_literal_value(&self, literal: Literal) -> Option<bool> {
@@ -735,7 +726,18 @@ impl ConstraintSatisfactionSolver {
 
     pub fn restore_state_at_root(&mut self, brancher: &mut impl Brancher) {
         if self.assignments.get_decision_level() != 0 {
-            self.backtrack(0, brancher);
+            ConstraintSatisfactionSolver::backtrack(
+                &mut self.assignments,
+                &mut self.last_notified_cp_trail_index,
+                &mut self.reason_store,
+                &mut self.propagator_queue,
+                &mut self.watch_list_cp,
+                &mut self.propagators,
+                &mut self.event_drain,
+                &mut self.backtrack_event_drain,
+                0,
+                brancher,
+            );
             self.state.declare_ready();
         }
     }
@@ -895,7 +897,7 @@ impl ConstraintSatisfactionSolver {
             brancher,
             semantic_minimiser: &mut self.semantic_minimiser,
             propagators: &mut self.propagators,
-            last_notified_cp_trail_index: self.last_notified_cp_trail_index,
+            last_notified_cp_trail_index: &mut self.last_notified_cp_trail_index,
             watch_list_cp: &mut self.watch_list_cp,
             propagator_queue: &mut self.propagator_queue,
             event_drain: &mut self.event_drain,
@@ -903,10 +905,10 @@ impl ConstraintSatisfactionSolver {
             should_minimise: self.internal_parameters.learning_clause_minimisation,
             proof_log: &mut self.internal_parameters.proof_log,
             is_completing_proof: false,
+            unit_nogood_step_ids: &self.unit_nogood_step_ids,
         };
 
         let resolve_result = self
-            .internal_parameters
             .conflict_resolver
             .resolve_conflict(&mut conflict_analysis_context);
 
@@ -931,13 +933,10 @@ impl ConstraintSatisfactionSolver {
         }
 
         let result = self
-            .internal_parameters
             .conflict_resolver
             .process(&mut conflict_analysis_context, &resolve_result);
         if result.is_err() {
-            // Root level conflict?
-            self.state.declare_infeasible();
-            return;
+            unreachable!("Cannot resolve nogood and reach error")
         }
 
         if let Some(Nogood(learned_nogood)) = resolve_result {
@@ -945,15 +944,16 @@ impl ConstraintSatisfactionSolver {
                 .predicates
                 .iter()
                 .map(|&predicate| !predicate);
-            if let Err(write_error) = self
+            let step_id = self
                 .internal_parameters
                 .proof_log
                 .log_learned_clause(learned_clause, &self.variable_names)
-            {
-                warn!(
-                    "Failed to update the certificate file, error message: {}",
-                    write_error
-                );
+                .expect("Failed to write proof log");
+
+            if learned_nogood.predicates.len() == 1 {
+                let _ = self
+                    .unit_nogood_step_ids
+                    .insert(!learned_nogood.predicates[0], step_id);
             }
 
             self.counters
@@ -1025,44 +1025,75 @@ impl ConstraintSatisfactionSolver {
 
         self.counters.engine_statistics.num_restarts += 1;
 
-        self.backtrack(0, brancher);
+        ConstraintSatisfactionSolver::backtrack(
+            &mut self.assignments,
+            &mut self.last_notified_cp_trail_index,
+            &mut self.reason_store,
+            &mut self.propagator_queue,
+            &mut self.watch_list_cp,
+            &mut self.propagators,
+            &mut self.event_drain,
+            &mut self.backtrack_event_drain,
+            0,
+            brancher,
+        );
 
         self.restart_strategy.notify_restart();
     }
 
-    pub(crate) fn backtrack(&mut self, backtrack_level: usize, brancher: &mut impl Brancher) {
-        pumpkin_assert_simple!(backtrack_level < self.get_decision_level());
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "This method requires this many arguments, though a backtracking context could be considered; for now this function needs to be used by conflict analysis"
+    )]
+    pub(crate) fn backtrack<BrancherType: Brancher + ?Sized>(
+        assignments: &mut Assignments,
+        last_notified_cp_trail_index: &mut usize,
+        reason_store: &mut ReasonStore,
+        propagator_queue: &mut PropagatorQueue,
+        watch_list_cp: &mut WatchListCP,
+        propagators: &mut PropagatorStore,
+        event_drain: &mut Vec<(IntDomainEvent, DomainId)>,
+        backtrack_event_drain: &mut Vec<(IntDomainEvent, DomainId)>,
+        backtrack_level: usize,
+        brancher: &mut BrancherType,
+    ) {
+        pumpkin_assert_simple!(backtrack_level < assignments.get_decision_level());
 
         brancher.on_backtrack();
 
-        self.assignments
+        assignments
             .synchronise(
                 backtrack_level,
-                self.last_notified_cp_trail_index,
-                self.watch_list_cp.is_watching_any_backtrack_events(),
+                *last_notified_cp_trail_index,
+                watch_list_cp.is_watching_any_backtrack_events(),
             )
             .iter()
             .for_each(|(domain_id, previous_value)| {
                 brancher.on_unassign_integer(*domain_id, *previous_value)
             });
-        self.last_notified_cp_trail_index = self.assignments.num_trail_entries();
+        *last_notified_cp_trail_index = assignments.num_trail_entries();
 
-        self.reason_store.synchronise(backtrack_level);
-        self.propagator_queue.clear();
+        reason_store.synchronise(backtrack_level);
+        propagator_queue.clear();
         // For now all propagators are called to synchronise, in the future this will be improved in
         // two ways:
         //      + allow incremental synchronisation
         //      + only call the subset of propagators that were notified since last backtrack
-        for propagator in self.propagators.iter_propagators_mut() {
-            let context = PropagationContext::new(&self.assignments);
+        for propagator in propagators.iter_propagators_mut() {
+            let context = PropagationContext::new(assignments);
             propagator.synchronise(context);
         }
 
-        brancher.synchronise(&self.assignments);
+        brancher.synchronise(assignments);
 
-        let _ = self.process_backtrack_events();
+        let _ = ConstraintSatisfactionSolver::process_backtrack_events(
+            watch_list_cp,
+            backtrack_event_drain,
+            assignments,
+            propagators,
+        );
 
-        self.event_drain.clear();
+        event_drain.clear();
     }
 
     pub(crate) fn compute_reason_for_empty_domain(
@@ -1110,7 +1141,7 @@ impl ConstraintSatisfactionSolver {
         // The initial domain events are due to the decision predicate.
         self.notify_propagators_about_domain_events();
         // Keep propagating until there are unprocessed propagators, or a conflict is detected.
-        while let Some(propagator_id) = self.propagator_queue.pop_new() {
+        while let Some(propagator_id) = self.propagator_queue.pop() {
             let tag = self.propagators.get_tag(propagator_id);
             let num_trail_entries_before = self.assignments.num_trail_entries();
 
@@ -1144,7 +1175,7 @@ impl ConstraintSatisfactionSolver {
                                 &mut self.propagators,
                             );
 
-                        // todo: As a temporary solution, we remove the last trail element.
+                        // TODO: As a temporary solution, we remove the last trail element.
                         // This way we guarantee that the assignment is consistent, which is needed
                         // for the conflict analysis data structures. The proper alternative would
                         // be to forbid the assignments from getting into an inconsistent state.
@@ -1244,15 +1275,20 @@ impl ConstraintSatisfactionSolver {
             while let Some(premise) = to_explain.pop_front() {
                 pumpkin_assert_simple!(self.assignments.is_predicate_satisfied(premise));
 
-                if premise == Predicate::trivially_true() {
+                let index = self
+                    .assignments
+                    .get_trail_position(&premise)
+                    .expect("Expected premise to be true");
+                let trail_entry = self.assignments.get_trail_entry(index);
+
+                if self.assignments.is_initial_bound(trail_entry.predicate) {
                     continue;
                 }
 
-                if let Some(step_id) = self.unit_nogood_step_ids.get(&premise) {
+                if let Some(step_id) = self.unit_nogood_step_ids.get(&trail_entry.predicate) {
                     self.internal_parameters.proof_log.add_propagation(*step_id);
                 } else {
-                    // TODO: what should occur here?
-                    continue;
+                    unreachable!()
                 }
             }
 
@@ -1435,6 +1471,19 @@ impl ConstraintSatisfactionSolver {
             return Err(ConstraintOperationError::InfeasibleClause);
         }
 
+        if predicates.len() == 1 {
+            let _ = self
+                .internal_parameters
+                .proof_log
+                .log_inference(None, [predicates[0]], None);
+            let step_id = self
+                .internal_parameters
+                .proof_log
+                .log_learned_clause([!predicates[0]], &self.variable_names)
+                .expect("Expected to be able to write proof");
+            let _ = self.unit_nogood_step_ids.insert(!predicates[0], step_id);
+        }
+
         if let Err(constraint_operation_error) = self.add_nogood(predicates) {
             self.state
                 .declare_conflict(StoredConflictInfo::RootLevelConflict(
@@ -1520,7 +1569,7 @@ impl CSPSolverState {
         }
     }
 
-    pub fn get_conflict_info(&self) -> StoredConflictInfo {
+    pub(crate) fn get_conflict_info(&self) -> StoredConflictInfo {
         match &self.internal_state {
             CSPSolverStateInternal::Conflict { conflict_info } => conflict_info.clone(),
             CSPSolverStateInternal::InfeasibleUnderAssumptions {
@@ -1698,14 +1747,13 @@ mod tests {
     }
 
     #[test]
-    fn simple_core_extraction_1_core_before_inconsistency() {
+    fn simple_core_extraction_1_core_conflicting() {
         let (solver, lits) = create_instance1();
         run_test(
             solver,
             vec![!lits[1], lits[1]],
             CSPSolverExecutionFlag::Infeasible,
-            CoreExtractionResult::Core(vec![!lits[1]]), /* The core gets computed before
-                                                         * inconsistency is detected */
+            CoreExtractionResult::ConflictingAssumption(!lits[1]),
         );
     }
     fn create_instance2() -> (ConstraintSatisfactionSolver, Vec<Predicate>) {
@@ -1737,12 +1785,7 @@ mod tests {
             solver,
             vec![!lits[0], lits[1], !lits[2], lits[0]],
             CSPSolverExecutionFlag::Infeasible,
-            CoreExtractionResult::Core(vec![!lits[0], lits[1], !lits[2]]), /* could return
-                                                                            * inconsistent
-                                                                            * assumptions,
-                                                                            * however inconsistency will not be detected
-                                                                            * given the order of
-                                                                            * the assumptions */
+            CoreExtractionResult::ConflictingAssumption(!lits[0]),
         );
     }
 
@@ -1753,7 +1796,7 @@ mod tests {
             solver,
             vec![!lits[0], !lits[0], !lits[1], !lits[1], lits[0]],
             CSPSolverExecutionFlag::Infeasible,
-            CoreExtractionResult::ConflictingAssumption(lits[0]),
+            CoreExtractionResult::ConflictingAssumption(!lits[0]),
         );
     }
     fn create_instance3() -> (ConstraintSatisfactionSolver, Vec<Predicate>) {

@@ -8,8 +8,8 @@ use clap::Parser;
 use log::{info, warn, LevelFilter};
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
-use pumpkin_solver::conflict_resolution::{IntSatConflictResolver, ResolutionResolver};
 use pumpkin_solver::options::{CumulativeOptions, LearningOptions, RestartOptions, SolverOptions};
+use pumpkin_solver::options::ConflictResolver::{IntSat, UIP};
 use pumpkin_solver::proof::ProofLog;
 use pumpkin_solver::Solver;
 use pumpkin_solver::statistics::configure_statistic_logging;
@@ -83,11 +83,7 @@ fn main() {
         learning_clause_minimisation: true,
         random_generator: SmallRng::seed_from_u64(42),
         proof_log: ProofLog::default(),
-        conflict_resolver: if args.use_intsat {
-            Box::new(IntSatConflictResolver::new(args.skip_nogood_learning))
-        } else {
-            Box::new(ResolutionResolver::default())
-        },
+        conflict_resolver: if args.use_intsat { IntSat } else { UIP },
         learning_options: LearningOptions::default(),
     };
 

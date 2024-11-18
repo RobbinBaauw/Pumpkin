@@ -2,9 +2,9 @@ use super::independent_variable_value_brancher::IndependentVariableValueBrancher
 use crate::basic_types::PredicateId;
 use crate::basic_types::PredicateIdGenerator;
 use crate::basic_types::SolutionReference;
+use crate::branching::value_selection::InDomainRandom;
+use crate::branching::variable_selection::ProportionalDomainSize;
 use crate::branching::Brancher;
-use crate::branching::InDomainRandom;
-use crate::branching::ProportionalDomainSize;
 use crate::branching::SelectionContext;
 use crate::containers::KeyValueHeap;
 use crate::containers::StorageKey;
@@ -56,7 +56,7 @@ use crate::DefaultBrancher;
 /// value-selection heuristic to simulate local search behavior in complete solvers’, in the
 /// proceedings of the Principles and Practice of Constraint Programming (CP 2018).
 #[derive(Debug)]
-#[allow(dead_code)]
+
 pub struct AutonomousSearch<BackupBrancher> {
     /// Predicates are mapped to ids. This is used internally in the heap.
     predicate_id_info: PredicateIdGenerator,

@@ -26,9 +26,6 @@ use maxsat::PseudoBooleanEncoding;
 use parsers::dimacs::parse_cnf;
 use parsers::dimacs::SolverArgs;
 use parsers::dimacs::SolverDimacsSink;
-use pumpkin_solver::conflict_resolution::NoLearningResolver;
-use pumpkin_solver::conflict_resolution::ResolutionResolver;
-use pumpkin_solver::conflict_resolution::IntSatConflictResolver;
 use pumpkin_solver::options::*;
 use pumpkin_solver::proof::Format;
 use pumpkin_solver::proof::ProofLog;
@@ -48,7 +45,6 @@ use crate::flatzinc::FlatZincOptions;
 use crate::maxsat::wcnf_problem;
 
 pub(crate) type HashMap<K, V, Hasher = FnvBuildHasher> = std::collections::HashMap<K, V, Hasher>;
-// pub(crate) type HashSet<K, Hasher = FnvBuildHasher> = std::collections::HashSet<K, Hasher>;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -84,7 +80,7 @@ struct Args {
     /// What type of proof to log.
     ///
     /// If the `proof_path` option is not provided, this is ignored.
-    #[arg(long, default_value_t = ProofType::Scaffold)]
+    #[arg(long, value_enum, default_value_t)]
     proof_type: ProofType,
 
     /// The number of high lbd learned clauses that are kept in the database.
@@ -114,11 +110,7 @@ struct Args {
     /// Decides which clauses will be removed when cleaning up the learned clauses. Can either be
     /// based on the LBD of a clause (the number of different decision levels) or on the activity
     /// of a clause (how often it is used in conflict analysis).
-    #[arg(
-        short = 'l',
-        long = "learning-sorting-strategy",
-        default_value_t = LearnedNogoodSortingStrategy::Activity, verbatim_doc_comment
-    )]
+    #[arg(long, value_enum, default_value_t)]
     learning_sorting_strategy: LearnedNogoodSortingStrategy,
 
     /// Decides whether learned clauses are minimised as a post-processing step after computing the
@@ -132,18 +124,9 @@ struct Args {
     no_learning_clause_minimisation: bool,
 
     /// Decides the sequence based on which the restarts are performed.
-    /// - The "constant" approach uses a constant number of conflicts before another restart is
-    ///   triggered
-    /// - The "geometric" approach uses a geometrically increasing sequence
-    /// - The "luby" approach uses a recursive sequence of the form 1, 1, 2, 1, 1, 2, 4, 1, 1, 2,
-    ///   1, 1, 2, 4, 8, 1, 1, 2.... (see "Optimal speedup of Las Vegas algorithms - Luby et al.
-    ///   (1993)")
     ///
     /// To be used in combination with "--restarts-base-interval".
-    #[arg(
-        long = "restart-sequence",
-        default_value_t = SequenceGeneratorType::Constant, verbatim_doc_comment
-    )]
+    #[arg(long, value_enum, default_value_t)]
     restart_sequence_generator_type: SequenceGeneratorType,
 
     /// The base interval length is used as a multiplier to the restart sequence.
@@ -304,16 +287,7 @@ struct Args {
     omit_call_site: bool,
 
     /// The encoding to use for the upper bound constraint in a MaxSAT optimisation problem.
-    ///
-    /// The "gte" value specifies that the solver should use the Generalized Totalizer Encoding
-    /// (see "Generalized totalizer encoding for pseudo-boolean constraints - Saurabh et al.
-    /// (2015)"), and the "cne" value specifies that the solver should use the Cardinality Network
-    /// Encoding (see "Cardinality networks: a theoretical and empirical study - Asín et al.
-    /// (2011)").
-    #[arg(
-        long = "upper-bound-encoding",
-        default_value_t = PseudoBooleanEncoding::GeneralizedTotalizer, verbatim_doc_comment
-    )]
+    #[arg(long, value_enum, default_value_t)]
     upper_bound_encoding: PseudoBooleanEncoding,
 
     /// Determines that the cumulative propagator(s) are allowed to create holes in the domain.
@@ -327,16 +301,17 @@ struct Args {
     /// Possible values: bool
     #[arg(long = "no-restarts", verbatim_doc_comment)]
     no_restarts: bool,
+
     /// Determines the type of explanation used by the cumulative propagator(s) to explain
     /// propagations/conflicts.
-    #[arg(long = "cumulative-explanation-type", default_value_t = CumulativeExplanationType::default())]
+    #[arg(long, value_enum, default_value_t)]
     cumulative_explanation_type: CumulativeExplanationType,
 
     /// Determines the type of propagator which is used by the cumulative propagator(s) to
     /// propagate the constraint.
     ///
     /// Currently, the solver only supports variations on time-tabling methods.
-    #[arg(long = "cumulative-propagation-method",  default_value_t = CumulativePropagationMethod::default())]
+    #[arg(long, value_enum, default_value_t)]
     cumulative_propagation_method: CumulativePropagationMethod,
 
     /// Determines whether a sequence of profiles is generated when explaining a propagation for
@@ -346,11 +321,9 @@ struct Args {
     #[arg(long = "cumulative-generate-sequence")]
     cumulative_generate_sequence: bool,
 
-    /// Determines whether the solver performs no learning or not
-    ///
-    /// Possible values: bool
-    #[arg(long = "no-learning")]
-    no_learning: bool,
+    /// Determines the conflict resolver.
+    #[arg(long, value_enum, default_value_t)]
+    conflict_resolver: ConflictResolver,
 
     /// Determines whether the solver uses IntSat conflict resolution
     ///
@@ -521,8 +494,6 @@ fn run() -> PumpkinResult<()> {
         geometric_coef: args.restart_geometric_coef,
         no_restarts: args.no_restarts,
     };
-    let random_generator = SmallRng::seed_from_u64(args.random_seed);
-    let learning_clause_minimisation = !args.no_learning_clause_minimisation;
     let learning_options = LearningOptions {
         max_activity: 1e20,
         activity_decay_factor: 0.99,
@@ -532,33 +503,13 @@ fn run() -> PumpkinResult<()> {
         activity_bump_increment: 1.0,
     };
 
-    let solver_options = if args.no_learning {
-        SolverOptions {
-            restart_options,
-            learning_clause_minimisation,
-            random_generator,
-            proof_log,
-            conflict_resolver: Box::new(NoLearningResolver),
-            learning_options,
-        }
-    } else if args.use_intsat {
-        SolverOptions {
-            restart_options,
-            learning_clause_minimisation,
-            random_generator,
-            proof_log,
-            conflict_resolver: Box::new(IntSatConflictResolver::default()),
-            learning_options,
-        }
-    } else {
-        SolverOptions {
-            restart_options,
-            learning_clause_minimisation,
-            random_generator,
-            proof_log,
-            conflict_resolver: Box::new(ResolutionResolver::default()),
-            learning_options,
-        }
+    let solver_options = SolverOptions {
+        restart_options,
+        learning_clause_minimisation: !args.no_learning_clause_minimisation,
+        random_generator: SmallRng::seed_from_u64(args.random_seed),
+        proof_log,
+        conflict_resolver: args.conflict_resolver,
+        learning_options,
     };
 
     let time_limit = args.time_limit.map(Duration::from_millis);
@@ -639,15 +590,14 @@ fn stringify_solution(
 ) -> String {
     solution
         .get_domains()
-        .skip(1)
         .take(number_of_variables)
         .map(|domain_id| {
             let value = solution.get_integer_value(domain_id);
             pumpkin_assert_simple!((0..=1).contains(&value));
             if value == 1 {
-                format!("{} ", domain_id.id - 1)
+                format!("{} ", domain_id.id)
             } else {
-                format!("-{} ", domain_id.id - 1)
+                format!("-{} ", domain_id.id)
             }
         })
         .chain(if terminate_with_zero {
@@ -658,9 +608,10 @@ fn stringify_solution(
         .collect::<String>()
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Default, Clone, Copy, Debug, ValueEnum)]
 enum ProofType {
     /// Log only the proof scaffold.
+    #[default]
     Scaffold,
     /// Log the full proof without hints.
     Full,

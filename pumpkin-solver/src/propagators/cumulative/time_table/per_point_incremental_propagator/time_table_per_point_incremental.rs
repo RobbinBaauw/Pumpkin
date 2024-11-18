@@ -62,7 +62,7 @@ use crate::pumpkin_assert_extreme;
 /// \[1\] A. Schutt, Improving scheduling by learning. University of Melbourne, Department of
 /// Computer Science and Software Engineering, 2011.
 #[derive(Debug)]
-#[allow(unused)]
+
 pub(crate) struct TimeTablePerPointIncrementalPropagator<Var, const SYNCHRONISE: bool> {
     /// The key `t` (representing a time-point) holds the mandatory resource consumption of
     /// [`Task`]s at that time (stored in a [`ResourceProfile`]); the [`ResourceProfile`]s are
@@ -828,10 +828,7 @@ mod tests {
         assert_eq!(solver.upper_bound(s1), 6);
 
         let reason = solver.get_reason_int(predicate!(s2 <= 3));
-        assert_eq!(
-            conjunction!([s2 <= 5] & [s1 >= 6] & [s1 <= 6]).as_slice(),
-            reason
-        );
+        assert_eq!(conjunction!([s2 <= 5] & [s1 >= 6] & [s1 <= 6]), reason);
     }
 
     #[test]
@@ -1026,14 +1023,14 @@ mod tests {
 
         let reason = solver.get_reason_int(predicate!(s2 >= 5));
         assert_eq!(
-            conjunction!([s2 >= 4] & [s1 >= 1] & [s1 <= 1]).as_slice(), /* Note that this not
-                                                                         * the most general
-                                                                         * explanation, if s2
-                                                                         * could have started at
-                                                                         * 0 then it would still
-                                                                         * have
-                                                                         * overlapped with the
-                                                                         * current interval */
+            conjunction!([s2 >= 4] & [s1 >= 1] & [s1 <= 1]), /* Note that this not
+                                                              * the most general
+                                                              * explanation, if s2
+                                                              * could have started at
+                                                              * 0 then it would still
+                                                              * have
+                                                              * overlapped with the
+                                                              * current interval */
             reason
         );
     }
@@ -1084,11 +1081,11 @@ mod tests {
 
         let reason = solver.get_reason_int(predicate!(s3 >= 7));
         assert_eq!(
-            conjunction!([s2 <= 5] & [s2 >= 5] & [s3 >= 6]).as_slice(), /* Note that s3 would
-                                                                         * have been able to
-                                                                         * propagate
-                                                                         * this bound even if it
-                                                                         * started at time 0 */
+            conjunction!([s2 <= 5] & [s2 >= 5] & [s3 >= 6]), /* Note that s3 would
+                                                              * have been able to
+                                                              * propagate
+                                                              * this bound even if it
+                                                              * started at time 0 */
             reason
         );
     }
@@ -1133,7 +1130,7 @@ mod tests {
         for removed in 2..8 {
             assert!(!solver.contains(s2, removed));
             let reason = solver.get_reason_int(predicate!(s2 != removed));
-            assert_eq!(conjunction!([s1 <= 4] & [s1 >= 4]).as_slice(), reason);
+            assert_eq!(conjunction!([s1 <= 4] & [s1 >= 4]), reason);
         }
     }
 

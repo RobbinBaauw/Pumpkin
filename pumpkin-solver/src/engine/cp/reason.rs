@@ -9,8 +9,6 @@ use crate::predicates::Predicate;
 use crate::pumpkin_assert_simple;
 
 /// The reason store holds a reason for each change made by a CP propagator on a trail.
-///   This trail makes is easy to garbage collect reasons by simply synchronising whenever
-///   the `Assignments` and `AssignmentsPropositional` are synchronised.
 #[derive(Default, Debug)]
 pub struct ReasonStore {
     trail: Trail<(PropagatorId, Reason)>,
@@ -48,9 +46,12 @@ impl ReasonStore {
         let _ = self.trail.synchronise(level);
     }
 
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.trail.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Get the propagator which generated the given reason.

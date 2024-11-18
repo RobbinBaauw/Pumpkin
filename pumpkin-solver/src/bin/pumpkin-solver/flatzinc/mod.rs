@@ -15,8 +15,6 @@ use pumpkin_solver::branching::branchers::dynamic_brancher::DynamicBrancher;
 #[cfg(doc)]
 use pumpkin_solver::constraints::cumulative;
 use pumpkin_solver::options::CumulativeOptions;
-use pumpkin_solver::predicate;
-use pumpkin_solver::predicates::Predicate;
 use pumpkin_solver::results::solution_iterator::IteratedSolution;
 use pumpkin_solver::results::OptimisationResult;
 use pumpkin_solver::results::ProblemSolution;
@@ -35,7 +33,7 @@ use crate::flatzinc::error::FlatZincError;
 const MSG_UNKNOWN: &str = "=====UNKNOWN=====";
 const MSG_UNSATISFIABLE: &str = "=====UNSATISFIABLE=====";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct FlatZincOptions {
     /// If `true`, the solver will not strictly keep to the search annotations in the flatzinc.
     pub free_search: bool,
@@ -46,18 +44,6 @@ pub struct FlatZincOptions {
 
     /// Options used for the cumulative constraint (see [`cumulative`]).
     pub cumulative_options: CumulativeOptions,
-}
-
-#[cfg(test)]
-#[allow(clippy::derivable_impls)]
-impl Default for FlatZincOptions {
-    fn default() -> Self {
-        Self {
-            free_search: false,
-            all_solutions: false,
-            cumulative_options: CumulativeOptions::default(),
-        }
-    }
 }
 
 pub fn solve(
@@ -152,11 +138,6 @@ pub fn solve(
             match solver.satisfy(&mut brancher, &mut termination) {
                 SatisfactionResult::Satisfiable(_) => {}
                 SatisfactionResult::Unsatisfiable => {
-                    // todo: add proof-logging
-                    // if solver.conclude_proof_unsat().is_err() {
-                    //     warn!("Failed to log solver conclusion");
-                    // };
-
                     println!("{MSG_UNSATISFIABLE}");
                 }
                 SatisfactionResult::Unknown => {
@@ -175,17 +156,6 @@ pub fn solve(
     }
 
     Ok(())
-}
-
-#[allow(dead_code)]
-fn get_bound_predicate(
-    objective_function: FlatzincObjective,
-    optimal_objective_value: i32,
-) -> Predicate {
-    match objective_function {
-        FlatzincObjective::Maximize(domain) => predicate![domain <= optimal_objective_value],
-        FlatzincObjective::Minimize(domain) => predicate![domain >= optimal_objective_value],
-    }
 }
 
 fn parse_and_compile(

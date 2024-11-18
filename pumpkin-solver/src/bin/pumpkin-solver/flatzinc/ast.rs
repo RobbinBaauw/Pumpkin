@@ -1,25 +1,25 @@
 use log::warn;
-use pumpkin_solver::branching::AntiFirstFail;
-use pumpkin_solver::branching::DynamicValueSelector;
-use pumpkin_solver::branching::DynamicVariableSelector;
-use pumpkin_solver::branching::FirstFail;
-use pumpkin_solver::branching::InDomainInterval;
-use pumpkin_solver::branching::InDomainMax;
-use pumpkin_solver::branching::InDomainMedian;
-use pumpkin_solver::branching::InDomainMiddle;
-use pumpkin_solver::branching::InDomainMin;
-use pumpkin_solver::branching::InDomainRandom;
-use pumpkin_solver::branching::InDomainSplit;
-use pumpkin_solver::branching::InDomainSplitRandom;
-use pumpkin_solver::branching::InputOrder;
-use pumpkin_solver::branching::Largest;
-use pumpkin_solver::branching::MaxRegret;
-use pumpkin_solver::branching::OutDomainMax;
-use pumpkin_solver::branching::OutDomainMedian;
-use pumpkin_solver::branching::OutDomainMin;
-use pumpkin_solver::branching::OutDomainRandom;
-use pumpkin_solver::branching::ReverseInDomainSplit;
-use pumpkin_solver::branching::Smallest;
+use pumpkin_solver::branching::value_selection::DynamicValueSelector;
+use pumpkin_solver::branching::value_selection::InDomainInterval;
+use pumpkin_solver::branching::value_selection::InDomainMax;
+use pumpkin_solver::branching::value_selection::InDomainMedian;
+use pumpkin_solver::branching::value_selection::InDomainMiddle;
+use pumpkin_solver::branching::value_selection::InDomainMin;
+use pumpkin_solver::branching::value_selection::InDomainRandom;
+use pumpkin_solver::branching::value_selection::InDomainSplit;
+use pumpkin_solver::branching::value_selection::InDomainSplitRandom;
+use pumpkin_solver::branching::value_selection::OutDomainMax;
+use pumpkin_solver::branching::value_selection::OutDomainMedian;
+use pumpkin_solver::branching::value_selection::OutDomainMin;
+use pumpkin_solver::branching::value_selection::OutDomainRandom;
+use pumpkin_solver::branching::value_selection::ReverseInDomainSplit;
+use pumpkin_solver::branching::variable_selection::AntiFirstFail;
+use pumpkin_solver::branching::variable_selection::DynamicVariableSelector;
+use pumpkin_solver::branching::variable_selection::FirstFail;
+use pumpkin_solver::branching::variable_selection::InputOrder;
+use pumpkin_solver::branching::variable_selection::Largest;
+use pumpkin_solver::branching::variable_selection::MaxRegret;
+use pumpkin_solver::branching::variable_selection::Smallest;
 use pumpkin_solver::pumpkin_assert_eq_simple;
 use pumpkin_solver::pumpkin_assert_simple;
 use pumpkin_solver::variables::DomainId;
@@ -370,23 +370,18 @@ pub(crate) enum SingleVarDecl {
     IntInSet {
         id: String,
         set: Vec<i128>,
-        #[allow(dead_code)]
-        expr: Option<flatzinc::IntExpr>,
+
         annos: flatzinc::expressions::Annotations,
     },
 }
 
 pub(crate) enum VarArrayDecl {
     Bool {
-        #[allow(dead_code)]
-        ix: flatzinc::IndexSet,
         id: String,
         annos: Vec<flatzinc::Annotation>,
         array_expr: Option<flatzinc::ArrayOfBoolExpr>,
     },
     Int {
-        #[allow(dead_code)]
-        ix: flatzinc::IndexSet,
         id: String,
         annos: Vec<flatzinc::Annotation>,
         array_expr: Option<flatzinc::ArrayOfIntExpr>,

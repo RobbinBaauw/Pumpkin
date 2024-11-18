@@ -112,14 +112,61 @@ impl Assignments {
             id: self.num_domains(),
         };
 
-        let _ = self
-            .domains
-            .push(IntegerDomain::new(lower_bound, upper_bound, id));
+        self.trail.push(ConstraintProgrammingTrailEntry {
+            predicate: predicate!(id >= lower_bound),
+            old_lower_bound: lower_bound,
+            old_upper_bound: upper_bound,
+            reason: None,
+        });
+        self.trail.push(ConstraintProgrammingTrailEntry {
+            predicate: predicate!(id <= upper_bound),
+            old_lower_bound: lower_bound,
+            old_upper_bound: upper_bound,
+            reason: None,
+        });
+
+        let _ = self.domains.push(IntegerDomain::new(
+            lower_bound,
+            upper_bound,
+            id,
+            self.trail.len() - 1,
+        ));
 
         self.events.grow();
         self.backtrack_events.grow();
 
         id
+    }
+    pub fn create_new_integer_variable_sparse(&mut self, mut values: Vec<i32>) -> DomainId {
+        assert!(
+            !values.is_empty(),
+            "cannot create a variable with an empty domain"
+        );
+
+        values.sort();
+        values.dedup();
+
+        let lower_bound = values[0];
+        let upper_bound = values[values.len() - 1];
+
+        let domain_id = self.grow(lower_bound, upper_bound);
+
+        let mut next_idx = 0;
+        for value in lower_bound..=upper_bound {
+            if value == values[next_idx] {
+                next_idx += 1;
+            } else {
+                self.remove_value_from_domain(domain_id, value, None)
+                    .expect("the domain should not be empty");
+            }
+        }
+        self.domains[domain_id].initial_bounds_below_trail = self.trail.len() - 1;
+        pumpkin_assert_simple!(
+            next_idx == values.len(),
+            "Expected all values to have been processed"
+        );
+
+        domain_id
     }
 
     pub(crate) fn drain_domain_events(
@@ -137,9 +184,18 @@ impl Assignments {
     pub(crate) fn debug_create_empty_clone(&self) -> Self {
         let mut domains = self.domains.clone();
         let event_sink = EventSink::new(domains.len());
-        self.trail.iter().rev().for_each(|entry| {
-            domains[entry.predicate.get_domain()].undo_trail_entry(entry);
-        });
+        let maximum_trail_entry = domains
+            .iter()
+            .map(|domain| domain.initial_bounds_below_trail + 1)
+            .max()
+            .unwrap_or(0);
+        self.trail
+            .iter()
+            .skip(maximum_trail_entry)
+            .rev()
+            .for_each(|entry| {
+                domains[entry.predicate.get_domain()].undo_trail_entry(entry);
+            });
 
         Assignments {
             trail: Default::default(),
@@ -147,6 +203,34 @@ impl Assignments {
             events: event_sink,
             backtrack_events: EventSink::default(),
             pruned_values: self.pruned_values,
+        }
+    }
+
+    pub(crate) fn is_initial_bound(&self, predicate: Predicate) -> bool {
+        match predicate {
+            Predicate::LowerBound {
+                domain_id,
+                lower_bound,
+            } => lower_bound <= self.domains[domain_id].initial_lower_bound(),
+            Predicate::UpperBound {
+                domain_id,
+                upper_bound,
+            } => upper_bound >= self.domains[domain_id].initial_upper_bound(),
+            Predicate::NotEqual {
+                domain_id,
+                not_equal_constant: _,
+            } => {
+                self.get_trail_position(&predicate).unwrap_or_else(|| {
+                    panic!("Expected to be able to get trail entry of {predicate}")
+                }) <= self.domains[domain_id].initial_bounds_below_trail
+            }
+            Predicate::Equal {
+                domain_id,
+                equality_constant,
+            } => {
+                equality_constant == self.domains[domain_id].initial_lower_bound()
+                    && equality_constant == self.domains[domain_id].initial_upper_bound()
+            }
         }
     }
 }
@@ -703,10 +787,9 @@ struct BoundUpdateInfo {
 #[derive(Clone, Debug)]
 struct HoleUpdateInfo {
     removed_value: i32,
-    #[allow(dead_code)]
+
     decision_level: usize,
-    #[allow(dead_code)]
-    trail_position: usize,
+
     triggered_lower_bound_update: bool,
     triggered_upper_bound_update: bool,
 }
@@ -728,10 +811,17 @@ struct IntegerDomain {
     /// It maps a removed value with its decision level and trail position.
     /// In the future we could consider using direct hashing if the domain is small.
     holes: HashMap<i32, PairDecisionLevelTrailPosition>,
+    // Records the trail entry at which all of the root bounds are true
+    initial_bounds_below_trail: usize,
 }
 
 impl IntegerDomain {
-    fn new(lower_bound: i32, upper_bound: i32, id: DomainId) -> IntegerDomain {
+    fn new(
+        lower_bound: i32,
+        upper_bound: i32,
+        id: DomainId,
+        initial_bounds_below_trail: usize,
+    ) -> IntegerDomain {
         pumpkin_assert_simple!(lower_bound <= upper_bound, "Cannot create an empty domain.");
 
         let lower_bound_updates = vec![BoundUpdateInfo {
@@ -752,6 +842,7 @@ impl IntegerDomain {
             upper_bound_updates,
             hole_updates: vec![],
             holes: Default::default(),
+            initial_bounds_below_trail,
         }
     }
 
@@ -837,7 +928,6 @@ impl IntegerDomain {
             .bound
     }
 
-    #[allow(dead_code)]
     fn domain_iterator(&self) -> IntegerDomainIterator {
         // Ideally we use into_iter but I did not manage to get it to work,
         // because the iterator takes a lifelines
@@ -892,7 +982,6 @@ impl IntegerDomain {
         self.hole_updates.push(HoleUpdateInfo {
             removed_value,
             decision_level,
-            trail_position,
             triggered_lower_bound_update: false,
             triggered_upper_bound_update: false,
         });
@@ -1234,7 +1323,6 @@ pub(crate) struct IntegerDomainIterator<'a> {
 }
 
 impl IntegerDomainIterator<'_> {
-    #[allow(dead_code)]
     fn new(domain: &IntegerDomain) -> IntegerDomainIterator {
         IntegerDomainIterator {
             domain,
@@ -1513,7 +1601,7 @@ mod tests {
         let mut events = EventSink::default();
         events.grow();
 
-        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0));
+        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0), 0);
         domain.remove_value(1, 1, 2, &mut events);
 
         assert!(domain.contains(2));
@@ -1525,7 +1613,7 @@ mod tests {
         let mut events = EventSink::default();
         events.grow();
 
-        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0));
+        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0), 0);
         domain.remove_value(1, 1, 1, &mut events);
         domain.remove_value(2, 1, 2, &mut events);
 
@@ -1537,7 +1625,7 @@ mod tests {
         let mut events = EventSink::default();
         events.grow();
 
-        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0));
+        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0), 0);
         domain.remove_value(4, 0, 1, &mut events);
         domain.remove_value(5, 0, 2, &mut events);
 
@@ -1549,7 +1637,7 @@ mod tests {
         let mut events = EventSink::default();
         events.grow();
 
-        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0));
+        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0), 0);
         domain.remove_value(4, 0, 1, &mut events);
         domain.remove_value(1, 0, 2, &mut events);
         domain.remove_value(1, 0, 3, &mut events);
@@ -1560,7 +1648,7 @@ mod tests {
         let mut events = EventSink::default();
         events.grow();
 
-        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0));
+        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0), 0);
         domain.remove_value(2, 1, 2, &mut events);
         domain.remove_value(3, 1, 3, &mut events);
         domain.set_lower_bound(2, 1, 4, &mut events);
@@ -1573,7 +1661,7 @@ mod tests {
         let mut events = EventSink::default();
         events.grow();
 
-        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0));
+        let mut domain = IntegerDomain::new(1, 5, DomainId::new(0), 0);
         domain.remove_value(4, 0, 1, &mut events);
         domain.set_upper_bound(4, 0, 2, &mut events);
 
@@ -1611,7 +1699,7 @@ mod tests {
         events.grow();
 
         let domain_id = DomainId::new(0);
-        let mut domain = IntegerDomain::new(0, 100, domain_id);
+        let mut domain = IntegerDomain::new(0, 100, domain_id, 0);
         domain.set_lower_bound(1, 0, 1, &mut events);
         domain.set_lower_bound(5, 1, 2, &mut events);
         domain.set_lower_bound(10, 2, 10, &mut events);
@@ -1842,7 +1930,7 @@ mod tests {
         events.grow();
 
         let domain_id = DomainId::new(0);
-        let mut domain = IntegerDomain::new(0, 2, domain_id);
+        let mut domain = IntegerDomain::new(0, 2, domain_id, 0);
         domain.set_lower_bound(2, 1, 1, &mut events);
         domain.set_upper_bound(1, 1, 2, &mut events);
         assert!(domain.verify_consistency().is_err());
@@ -1854,7 +1942,7 @@ mod tests {
         events.grow();
 
         let domain_id = DomainId::new(0);
-        let mut domain = IntegerDomain::new(0, 2, domain_id);
+        let mut domain = IntegerDomain::new(0, 2, domain_id, 0);
         domain.remove_value(1, 1, 1, &mut events);
         domain.remove_value(2, 1, 2, &mut events);
         domain.remove_value(0, 1, 3, &mut events);
@@ -1864,7 +1952,7 @@ mod tests {
     #[test]
     fn domain_iterator_simple() {
         let domain_id = DomainId::new(0);
-        let domain = IntegerDomain::new(0, 5, domain_id);
+        let domain = IntegerDomain::new(0, 5, domain_id, 0);
         let mut iter = domain.domain_iterator();
         assert_eq!(iter.next(), Some(0));
         assert_eq!(iter.next(), Some(1));
@@ -1880,7 +1968,7 @@ mod tests {
         let mut events = EventSink::default();
         events.grow();
         let domain_id = DomainId::new(0);
-        let mut domain = IntegerDomain::new(0, 5, domain_id);
+        let mut domain = IntegerDomain::new(0, 5, domain_id, 0);
         domain.remove_value(1, 0, 5, &mut events);
         domain.remove_value(4, 0, 10, &mut events);
 
@@ -1897,7 +1985,7 @@ mod tests {
         let mut events = EventSink::default();
         events.grow();
         let domain_id = DomainId::new(0);
-        let mut domain = IntegerDomain::new(0, 5, domain_id);
+        let mut domain = IntegerDomain::new(0, 5, domain_id, 0);
         domain.remove_value(0, 0, 1, &mut events);
         domain.remove_value(5, 0, 10, &mut events);
 
@@ -1914,7 +2002,7 @@ mod tests {
         let mut events = EventSink::default();
         events.grow();
         let domain_id = DomainId::new(0);
-        let mut domain = IntegerDomain::new(0, 10, domain_id);
+        let mut domain = IntegerDomain::new(0, 10, domain_id, 0);
         domain.remove_value(7, 0, 1, &mut events);
         domain.remove_value(9, 0, 5, &mut events);
         domain.remove_value(2, 0, 10, &mut events);

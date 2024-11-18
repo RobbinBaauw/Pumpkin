@@ -67,8 +67,7 @@ pub(crate) trait PseudoBooleanConstraintEncoderInterface {
 
 /// Specifies the type of pseudo-boolean encoding which is used by the
 /// [`PseudoBooleanConstraintEncoder`].
-#[derive(Clone, Copy, Debug, ValueEnum)]
-#[allow(clippy::upper_case_acronyms)]
+#[derive(Default, Clone, Copy, Debug, ValueEnum)]
 pub(crate) enum PseudoBooleanEncoding {
     /// Specifies the usage of the generalized totalizer encoding for pseudo-boolean constraints
     /// \[1\].
@@ -76,6 +75,7 @@ pub(crate) enum PseudoBooleanEncoding {
     /// # Bibliography
     /// \[1] "Generalized totalizer encoding for pseudo-boolean constraints.", Joshi Saurabh, Ruben
     /// Martins, Vasco Manquinho; CP '15
+    #[default]
     GeneralizedTotalizer,
     /// Specifies the usage of the cardinality network \[1\] encoding for unweighted cardinality
     /// constraints in the form `x1 + ... + xn <= k`. The encoding is arc-consistent and
@@ -177,32 +177,9 @@ impl PseudoBooleanConstraintEncoder {
             })
             .collect();
 
-        for _term in function.get_terms() {
-            // todo: need to create a literal over an arbitrary predicate
-            todo!()
-            // let domain_id = *term.0;
-            // let weight = *term.1;
-
-            // let lower_bound = solver.lower_bound(&domain_id);
-            // let upper_bound = solver.upper_bound(&domain_id);
-
-            // // note that we only needs lower bound literals starting from lower_bound+1
-            // //  the literals before those contribute to the objective function but not in a way
-            // that // can be changed
-            // for i in (lower_bound + 1)..=upper_bound {
-            //     let literal = Literal::new(predicate![domain_id >= i]);
-            //     weighted_literals.push(WeightedLiteral {
-            //         literal,
-            //         weight,
-            //         bound: Some(i),
-            //     });
-            // }
-        }
-
         weighted_literals
     }
 
-    #[allow(deprecated)]
     pub(crate) fn constrain_at_most_k(
         &mut self,
         k: u64,

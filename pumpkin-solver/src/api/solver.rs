@@ -9,13 +9,13 @@ use crate::basic_types::HashSet;
 use crate::basic_types::Solution;
 use crate::branching::branchers::autonomous_search::AutonomousSearch;
 use crate::branching::branchers::independent_variable_value_brancher::IndependentVariableValueBrancher;
+use crate::branching::value_selection::InDomainRandom;
 #[cfg(doc)]
 use crate::branching::value_selection::ValueSelector;
+use crate::branching::variable_selection::ProportionalDomainSize;
 #[cfg(doc)]
 use crate::branching::variable_selection::VariableSelector;
 use crate::branching::Brancher;
-use crate::branching::InDomainRandom;
-use crate::branching::ProportionalDomainSize;
 use crate::constraints::ConstraintPoster;
 use crate::engine::predicates::predicate::Predicate;
 use crate::engine::propagation::Propagator;
@@ -93,9 +93,8 @@ pub struct Solver {
 
 impl Default for Solver {
     fn default() -> Self {
-        let mut satisfaction_solver = ConstraintSatisfactionSolver::default();
-        let true_literal =
-            satisfaction_solver.create_new_literal_for_predicate(Predicate::trivially_true(), None);
+        let satisfaction_solver = ConstraintSatisfactionSolver::default();
+        let true_literal = Literal::new(Predicate::trivially_true().get_domain());
         Self {
             satisfaction_solver,
             solution_callback: create_empty_function(),
@@ -120,9 +119,8 @@ impl std::fmt::Debug for Solver {
 impl Solver {
     /// Creates a solver with the provided [`SolverOptions`].
     pub fn with_options(solver_options: SolverOptions) -> Self {
-        let mut satisfaction_solver = ConstraintSatisfactionSolver::new(solver_options);
-        let true_literal =
-            satisfaction_solver.create_new_literal_for_predicate(Predicate::trivially_true(), None);
+        let satisfaction_solver = ConstraintSatisfactionSolver::new(solver_options);
+        let true_literal = Literal::new(Predicate::trivially_true().get_domain());
         Self {
             satisfaction_solver,
             solution_callback: create_empty_function(),
@@ -162,6 +160,8 @@ impl Solver {
 
 /// Methods to retrieve information about variables
 impl Solver {
+    /// Get the value of the given [`Literal`] at the root level (after propagation), which could be
+    /// unassigned.
     pub fn get_literal_value(&self, literal: Literal) -> Option<bool> {
         self.satisfaction_solver.get_literal_value(literal)
     }
@@ -496,9 +496,9 @@ impl Solver {
             self.satisfaction_solver.restore_state_at_root(brancher);
 
             let objective_bound_predicate = if is_maximising {
-                predicate![objective_variable <= best_objective_value as i32]
+                predicate![objective_variable >= best_objective_value as i32 * objective_multiplier]
             } else {
-                predicate![objective_variable >= best_objective_value as i32]
+                predicate![objective_variable <= best_objective_value as i32 * objective_multiplier]
             };
 
             if self

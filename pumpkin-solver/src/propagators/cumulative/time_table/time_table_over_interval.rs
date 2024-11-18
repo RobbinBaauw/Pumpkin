@@ -53,7 +53,7 @@ pub(crate) struct Event<Var> {
 /// \[1\] A. Schutt, Improving scheduling by learning. University of Melbourne, Department of
 /// Computer Science and Software Engineering, 2011.
 #[derive(Debug)]
-#[allow(unused)]
+
 pub(crate) struct TimeTableOverIntervalPropagator<Var> {
     /// Stores whether the time-table is empty
     is_time_table_empty: bool,
@@ -70,7 +70,6 @@ pub(crate) struct TimeTableOverIntervalPropagator<Var> {
 pub(crate) type OverIntervalTimeTableType<Var> = Vec<ResourceProfile<Var>>;
 
 impl<Var: IntegerVariable + 'static> TimeTableOverIntervalPropagator<Var> {
-    #[allow(unused)]
     pub(crate) fn new(
         arg_tasks: &[ArgTask<Var>],
         capacity: i32,
@@ -692,10 +691,7 @@ mod tests {
         assert_eq!(solver.upper_bound(s1), 6);
 
         let reason = solver.get_reason_int(predicate!(s2 <= 3));
-        assert_eq!(
-            conjunction!([s2 <= 8] & [s1 >= 6] & [s1 <= 6]).as_slice(),
-            reason
-        );
+        assert_eq!(conjunction!([s2 <= 8] & [s1 >= 6] & [s1 <= 6]), reason);
     }
 
     #[test]
@@ -883,10 +879,7 @@ mod tests {
         assert_eq!(solver.upper_bound(s1), 1);
 
         let reason = solver.get_reason_int(predicate!(s2 >= 5));
-        assert_eq!(
-            conjunction!([s2 >= 1] & [s1 >= 1] & [s1 <= 1]).as_slice(),
-            reason
-        );
+        assert_eq!(conjunction!([s2 >= 1] & [s1 >= 1] & [s1 <= 1]), reason);
     }
 
     #[test]
@@ -932,10 +925,7 @@ mod tests {
         assert_eq!(solver.upper_bound(s1), 3);
 
         let reason = solver.get_reason_int(predicate!(s3 >= 7));
-        assert_eq!(
-            conjunction!([s2 <= 5] & [s2 >= 5] & [s3 >= 5]).as_slice(),
-            reason
-        );
+        assert_eq!(conjunction!([s2 <= 5] & [s2 >= 5] & [s3 >= 5]), reason);
     }
 
     #[test]
@@ -976,7 +966,7 @@ mod tests {
         for removed in 2..8 {
             assert!(!solver.contains(s2, removed));
             let reason = solver.get_reason_int(predicate!(s2 != removed));
-            assert_eq!(conjunction!([s1 <= 4] & [s1 >= 4]).as_slice(), reason);
+            assert_eq!(conjunction!([s1 <= 4] & [s1 >= 4]), reason);
         }
     }
 }

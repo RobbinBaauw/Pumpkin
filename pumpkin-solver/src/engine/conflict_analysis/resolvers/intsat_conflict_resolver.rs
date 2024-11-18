@@ -6,10 +6,10 @@ use crate::variables::{DomainId, TransformableVariable};
 use std::collections::HashMap;
 use log::{debug, trace};
 use crate::basic_types::moving_averages::MovingAverage;
-use crate::conflict_resolution::{ConflictAnalysisContext, ConflictResolver, LearnedNogood, ResolutionResolver};
-use crate::engine::conflict_analysis::{ConflictResolveResult, LearnedConstraint};
+use crate::engine::conflict_analysis::{ConflictAnalysisContext, ConflictResolveResult, ConflictResolver, LearnedConstraint, LearnedNogood};
 use crate::engine::conflict_analysis::ConflictResolveResult::{Constraint, Nogood};
 use crate::engine::propagation::PropagatorInitialisationContext;
+use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
 use crate::pumpkin_assert_ne_simple;
 

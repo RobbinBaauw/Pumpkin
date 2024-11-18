@@ -1,23 +1,31 @@
+use std::fmt::Debug;
+
+use drcp_format::steps::StepId;
+
 use super::minimisers::SemanticMinimiser;
+use crate::basic_types::HashMap;
 use crate::basic_types::StoredConflictInfo;
 use crate::branching::Brancher;
 use crate::engine::constraint_satisfaction_solver::CSPSolverState;
 use crate::engine::predicates::predicate::Predicate;
 use crate::engine::propagation::store::PropagatorStore;
-use crate::engine::propagation::PropagationContext;
+use crate::engine::reason::ReasonRef;
 use crate::engine::reason::ReasonStore;
 use crate::engine::solver_statistics::SolverStatistics;
 use crate::engine::Assignments;
+use crate::engine::ConstraintSatisfactionSolver;
 use crate::engine::IntDomainEvent;
 use crate::engine::PropagatorQueue;
 use crate::engine::WatchListCP;
+use crate::predicate;
 use crate::proof::ProofLog;
 use crate::pumpkin_assert_simple;
 use crate::variables::DomainId;
 
-// Does not have debug because of the brancher does not support it. Could be thought through later.
-#[allow(missing_debug_implementations)]
-pub struct ConflictAnalysisContext<'a> {
+/// Used during conflict analysis to provide the necessary information.
+///
+/// All fields are made public for the time being for simplicity. In the future that may change.
+pub(crate) struct ConflictAnalysisContext<'a> {
     pub(crate) assignments: &'a mut Assignments,
     pub(crate) solver_state: &'a mut CSPSolverState,
     pub(crate) reason_store: &'a mut ReasonStore,
@@ -25,7 +33,7 @@ pub struct ConflictAnalysisContext<'a> {
     pub(crate) propagators: &'a mut PropagatorStore,
     pub(crate) semantic_minimiser: &'a mut SemanticMinimiser,
 
-    pub(crate) last_notified_cp_trail_index: usize,
+    pub(crate) last_notified_cp_trail_index: &'a mut usize,
     pub(crate) watch_list_cp: &'a mut WatchListCP,
     pub(crate) propagator_queue: &'a mut PropagatorQueue,
     pub(crate) event_drain: &'a mut Vec<(IntDomainEvent, DomainId)>,
@@ -37,95 +45,68 @@ pub struct ConflictAnalysisContext<'a> {
     pub(crate) should_minimise: bool,
 
     pub(crate) is_completing_proof: bool,
+    pub(crate) unit_nogood_step_ids: &'a HashMap<Predicate, StepId>,
+}
+
+impl Debug for ConflictAnalysisContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(std::any::type_name::<Self>()).finish()
+    }
 }
 
 impl<'a> ConflictAnalysisContext<'a> {
+    /// Returns the last decision which was made by the solver.
     pub(crate) fn find_last_decision(&mut self) -> Option<Predicate> {
         self.assignments.find_last_decision()
     }
 
+    /// Posts the predicate with reason an empty reason.
     pub(crate) fn enqueue_propagated_predicate(&mut self, predicate: Predicate) {
         self.assignments
-            .post_predicate(predicate, None)
+            .post_predicate(predicate, Some(ReasonRef(0)))
             .expect("Expected enqueued predicate to not lead to conflict directly")
     }
 
+    /// Backtracks the solver to the provided backtrack level.
     pub(crate) fn backtrack(&mut self, backtrack_level: usize) {
-        pumpkin_assert_simple!(backtrack_level < self.assignments.get_decision_level());
-
-        self.brancher.on_backtrack();
-
-        self.assignments
-            .synchronise(
-                backtrack_level,
-                self.last_notified_cp_trail_index,
-                self.watch_list_cp.is_watching_any_backtrack_events(),
-            )
-            .iter()
-            .for_each(|(domain_id, previous_value)| {
-                self.brancher
-                    .on_unassign_integer(*domain_id, *previous_value)
-            });
-        self.last_notified_cp_trail_index = self.assignments.num_trail_entries();
-
-        self.reason_store.synchronise(backtrack_level);
-        self.propagator_queue.clear();
-        // For now all propagators are called to synchronise, in the future this will be improved in
-        // two ways:
-        //      + allow incremental synchronisation
-        //      + only call the subset of propagators that were notified since last backtrack
-        for propagator in self.propagators.iter_propagators_mut() {
-            let context = PropagationContext::new(self.assignments);
-            propagator.synchronise(context);
-        }
-
-        self.brancher.synchronise(self.assignments);
-        let _ = self.process_backtrack_events();
-
-        self.event_drain.clear();
+        ConstraintSatisfactionSolver::backtrack(
+            self.assignments,
+            self.last_notified_cp_trail_index,
+            self.reason_store,
+            self.propagator_queue,
+            self.watch_list_cp,
+            self.propagators,
+            self.event_drain,
+            self.backtrack_event_drain,
+            backtrack_level,
+            self.brancher,
+        )
     }
 
-    fn process_backtrack_events(&mut self) -> bool {
-        // If there are no variables being watched then there is no reason to perform these
-        // operations
-        if self.watch_list_cp.is_watching_any_backtrack_events() {
-            self.backtrack_event_drain
-                .extend(self.assignments.drain_backtrack_domain_events());
-
-            if self.backtrack_event_drain.is_empty() {
-                return false;
-            }
-
-            for (event, domain) in self.backtrack_event_drain.drain(..) {
-                for propagator_var in self
-                    .watch_list_cp
-                    .get_backtrack_affected_propagators(event, domain)
-                {
-                    let propagator = &mut self.propagators[propagator_var.propagator];
-                    let context = PropagationContext::new(self.assignments);
-
-                    propagator.notify_backtrack(context, propagator_var.variable, event.into())
-                }
-            }
-        }
-        true
-    }
-
+    /// Returns a nogood which led to the conflict; if `is_completing_proof` is set to true, then
+    /// it will also return predicates from the root decision level.
     pub(crate) fn get_conflict_nogood(&mut self, is_completing_proof: bool) -> Vec<Predicate> {
         match self.solver_state.get_conflict_info() {
             StoredConflictInfo::Propagator {
                 conflict_nogood,
-                propagator_id: _,
-            } => conflict_nogood
-                .iter()
-                .filter(|p| {
-                    // filter out root predicates
-                    self.assignments
-                        .get_decision_level_for_predicate(p)
-                        .is_some_and(|dl| dl > 0)
-                })
-                .copied()
-                .collect(),
+                propagator_id,
+            } => {
+                let _ = self.proof_log.log_inference(
+                    self.propagators.get_tag(propagator_id),
+                    conflict_nogood.iter().copied(),
+                    None,
+                );
+                conflict_nogood
+                    .iter()
+                    .filter(|p| {
+                        // filter out root predicates
+                        self.assignments
+                            .get_decision_level_for_predicate(p)
+                            .is_some_and(|dl| dl > 0 || is_completing_proof)
+                    })
+                    .copied()
+                    .collect()
+            }
             StoredConflictInfo::EmptyDomain { conflict_nogood } => {
                 conflict_nogood
                     .iter()
@@ -144,12 +125,15 @@ impl<'a> ConflictAnalysisContext<'a> {
         }
     }
 
+    /// Returns the reason for a propagation; if it is implied then the reason will be the decision
+    /// which implied the predicate.
     pub(crate) fn get_propagation_reason(
         predicate: Predicate,
         assignments: &Assignments,
         reason_store: &'a mut ReasonStore,
         propagators: &'a mut PropagatorStore,
         proof_log: &'a mut ProofLog,
+        unit_nogood_step_ids: &HashMap<Predicate, StepId>,
     ) -> &'a [Predicate] {
         // TODO: this function could be put into the reason store
 
@@ -166,6 +150,10 @@ impl<'a> ConflictAnalysisContext<'a> {
         // there would be only one predicate from the current decision level. For this
         // reason, it is safe to assume that in the following, that any input predicate is
         // indeed a propagated predicate.
+        reason_store.helper.clear();
+        if assignments.is_initial_bound(predicate) {
+            return reason_store.helper.as_slice();
+        }
 
         let trail_position = assignments
             .get_trail_position(&predicate)
@@ -180,12 +168,40 @@ impl<'a> ConflictAnalysisContext<'a> {
                 .reason
                 .expect("Cannot be a null reason for propagation.");
 
-            let constraint_tag = propagators.get_tag(reason_store.get_propagator(reason_ref));
+            let propagator_id = reason_store.get_propagator(reason_ref);
+            let constraint_tag = propagators.get_tag(propagator_id);
             let reason = reason_store
                 .get_or_compute(reason_ref, assignments, propagators)
                 .expect("reason reference should not be stale");
-            let _ =
-                proof_log.log_inference(constraint_tag, reason.iter().copied(), Some(predicate));
+            if propagator_id == ConstraintSatisfactionSolver::get_nogood_propagator_id()
+                && reason.is_empty()
+            {
+                // This means that a unit nogood was propagated, we indicate that this nogood step
+                // was used
+                //
+                // It could be that the predicate is implied by another unit nogood
+
+                let step_id = unit_nogood_step_ids
+                    .get(&predicate)
+                    .or_else(|| {
+                        // It could be the case that we attempt to get the reason for the predicate
+                        // [x >= v] but that the corresponding unit nogood idea is the one for the
+                        // predicate [x == v]
+                        let domain_id = predicate.get_domain();
+                        let right_hand_side = predicate.get_right_hand_side();
+
+                        unit_nogood_step_ids.get(&predicate!(domain_id == right_hand_side))
+                    })
+                    .expect("Expected to be able to retrieve step id for unit nogood");
+                proof_log.add_propagation(*step_id);
+            } else {
+                // Otherwise we log the inference which was used to derive the nogood
+                let _ = proof_log.log_inference(
+                    constraint_tag,
+                    reason.iter().copied(),
+                    Some(predicate),
+                );
+            }
             reason
         // The predicate is implicitly due as a result of a decision.
         }
@@ -195,7 +211,6 @@ impl<'a> ConflictAnalysisContext<'a> {
             // The reason for propagation depends on:
             // 1) The predicate on the trail at the moment the input predicate became true, and
             // 2) The input predicate.
-            reason_store.helper.clear();
             match (trail_entry.predicate, predicate) {
                 (
                     Predicate::LowerBound {
@@ -501,7 +516,10 @@ impl<'a> ConflictAnalysisContext<'a> {
                     reason_store.helper.push(predicate_lb);
                     reason_store.helper.push(predicate_ub);
                 }
-                _ => unreachable!(),
+                _ => unreachable!(
+                    "Unreachable combination of {} and {}",
+                    trail_entry.predicate, predicate
+                ),
             };
             reason_store.helper.as_slice()
         }

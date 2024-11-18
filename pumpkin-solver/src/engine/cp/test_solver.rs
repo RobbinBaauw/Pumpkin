@@ -23,6 +23,7 @@ use crate::engine::Assignments;
 use crate::engine::DomainEvents;
 use crate::engine::EmptyDomain;
 use crate::engine::WatchListCP;
+use crate::predicates::PropositionalConjunction;
 
 /// A container for CP variables, which can be used to test propagators.
 #[derive(Debug)]
@@ -142,16 +143,6 @@ impl TestSolver {
             .is_some_and(|truth_value| !truth_value)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn set_lower_bound(&mut self, var: DomainId, bound: i32) -> Result<(), EmptyDomain> {
-        self.assignments.tighten_lower_bound(var, bound, None)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_upper_bound(&mut self, var: DomainId, bound: i32) -> Result<(), EmptyDomain> {
-        self.assignments.tighten_upper_bound(var, bound, None)
-    }
-
     pub(crate) fn upper_bound(&self, var: DomainId) -> i32 {
         self.assignments.get_upper_bound(var)
     }
@@ -232,16 +223,23 @@ impl TestSolver {
         }
     }
 
-    pub(crate) fn get_reason_int(&mut self, predicate: Predicate) -> &[Predicate] {
+    pub(crate) fn get_reason_int(&mut self, predicate: Predicate) -> PropositionalConjunction {
         let reason_ref = self
             .assignments
             .get_reason_for_predicate_brute_force(predicate);
-        self.reason_store
+        let predicates = self
+            .reason_store
             .get_or_compute(reason_ref, &self.assignments, &mut self.propagator_store)
-            .expect("reason_ref should not be stale")
+            .expect("reason_ref should not be stale");
+
+        PropositionalConjunction::from(predicates)
     }
 
-    pub(crate) fn get_reason_bool(&mut self, literal: Literal, truth_value: bool) -> &[Predicate] {
+    pub(crate) fn get_reason_bool(
+        &mut self,
+        literal: Literal,
+        truth_value: bool,
+    ) -> PropositionalConjunction {
         let predicate = match truth_value {
             true => literal.get_true_predicate(),
             false => (!literal).get_true_predicate(),

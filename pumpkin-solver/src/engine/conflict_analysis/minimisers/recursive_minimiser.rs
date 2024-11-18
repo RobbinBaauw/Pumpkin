@@ -1,7 +1,7 @@
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::HashMap;
 use crate::basic_types::HashSet;
-use crate::conflict_resolution::ConflictAnalysisContext;
+use crate::engine::conflict_analysis::ConflictAnalysisContext;
 use crate::engine::Assignments;
 use crate::predicates::Predicate;
 use crate::pumpkin_assert_moderate;
@@ -9,7 +9,6 @@ use crate::pumpkin_assert_simple;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RecursiveMinimiser {
-    // data structures used for clause minimisation after conflict analysis
     current_depth: usize,
     allowed_decision_levels: HashSet<usize>, // could consider direct hashing here
     label_assignments: HashMap<Predicate, Option<Label>>,
@@ -119,6 +118,7 @@ impl RecursiveMinimiser {
             context.reason_store,
             context.propagators,
             context.proof_log,
+            context.unit_nogood_step_ids,
         )
         .len();
 
@@ -129,6 +129,7 @@ impl RecursiveMinimiser {
                 context.reason_store,
                 context.propagators,
                 context.proof_log,
+                context.unit_nogood_step_ids,
             )[i];
 
             // Root assignments can be safely ignored.
@@ -205,7 +206,6 @@ impl RecursiveMinimiser {
         let _ = self.label_assignments.insert(predicate, Some(label));
     }
 
-    #[allow(dead_code)]
     fn is_predicate_label_already_computed(&self, predicate: Predicate) -> bool {
         let entry = self.label_assignments.get(&predicate);
         if let Some(label) = entry {
@@ -257,7 +257,6 @@ impl RecursiveMinimiser {
         self.label_assignments.clear();
     }
 
-    #[allow(dead_code)]
     fn is_at_max_allowed_depth(&self) -> bool {
         pumpkin_assert_moderate!(self.current_depth <= 500);
         self.current_depth == 500
