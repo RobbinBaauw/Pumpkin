@@ -129,5 +129,5 @@ def select_fzn():
 
 
 if __name__ == "__main__":
-    # generate_fzn()
-    select_fzn()
+    generate_fzn()
+    # select_fzn()

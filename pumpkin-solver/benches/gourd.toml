@@ -11,24 +11,24 @@ account = "Education-EEMCS-MSc-CS"
 output_folder = "./"
 
 [resource_limits]
-time_limit = "1h"
+time_limit = "1h 1m"
 cpus = 1
 mem_per_cpu = 16384
 
 [program]
 [program.resolution]
 binary = "./intsat_benchmarks"
-arguments = []
+arguments = ["--time-limit 3600000"]
 afterscript = "./afterscript.py"
 
 [program.intsat-nolearn]
 binary = "./intsat_benchmarks"
-arguments = ["--use-intsat", "--skip-nogood-learning"]
+arguments = ["--use-intsat", "--skip-nogood-learning", "--time-limit 3600000"]
 afterscript = "./afterscript.py"
 
 [program.intsat-learn]
 binary = "./intsat_benchmarks"
-arguments = ["--use-intsat"]
+arguments = ["--use-intsat", "--time-limit 3600000"]
 afterscript = "./afterscript.py"
 
 [input]

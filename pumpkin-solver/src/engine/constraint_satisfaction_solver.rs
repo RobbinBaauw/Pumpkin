@@ -142,6 +142,8 @@ pub struct ConstraintSatisfactionSolver {
     unit_nogood_step_ids: HashMap<Predicate, StepId>,
     /// The resolver which is used upon a conflict.
     conflict_resolver: Box<dyn Resolver>,
+    /// Prpagations TODO
+    next_propagation: Option<Predicate>,
 }
 
 impl Default for ConstraintSatisfactionSolver {
@@ -420,6 +422,7 @@ impl ConstraintSatisfactionSolver {
                 ConflictResolver::IntSat => Box::new(IntSatConflictResolver::default()),
             },
             internal_parameters: solver_options,
+            next_propagation: None,
         };
 
         // As a convention, the assignments contain a dummy domain_id=0, which represents a 0-1
@@ -836,6 +839,20 @@ impl ConstraintSatisfactionSolver {
                 });
         }
 
+        // Propagate the nogood from the resolution resolver as a decision
+        if let Some(propagation_predicate) = self.next_propagation {
+            self.declare_new_decision_level();
+
+            self
+                .assignments
+                .post_predicate(propagation_predicate, None)
+                .expect("Shouldn't error");
+
+            self.next_propagation = None;
+
+            return Ok(())
+        }
+
         // Otherwise proceed with standard branching.
         let context = &mut SelectionContext::new(
             &self.assignments,
@@ -981,7 +998,7 @@ impl ConstraintSatisfactionSolver {
 
         if self.internal_parameters.learning_options.skip_nogood_learning {
             debug!("==>==> Propagating {:?}", !learned_nogood.predicates[0]);
-            context.post_predicate(!learned_nogood.predicates[0], conjunction!()).expect("Oopsie");
+            self.next_propagation = Some(!learned_nogood.predicates[0]);
         } else {
             debug!("==>==> Learning nogood {:?}", learned_nogood.predicates);
             ConstraintSatisfactionSolver::add_asserting_nogood_to_nogood_propagator(

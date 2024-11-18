@@ -1,10 +1,11 @@
 use itertools::Itertools;
 use crate::basic_types::PropositionalConjunction;
 use crate::basic_types::PropagationStatusCP;
+use crate::containers::StorageKey;
 use crate::engine::cp::propagation::ReadDomains;
 use crate::engine::domain_events::DomainEvents;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
-use crate::engine::propagation::EnqueueDecision;
+use crate::engine::propagation::{EnqueueDecision, PropagatorId};
 use crate::engine::propagation::LocalId;
 use crate::engine::propagation::PropagationContext;
 use crate::engine::propagation::PropagationContextMut;
@@ -12,8 +13,17 @@ use crate::engine::propagation::Propagator;
 use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::variables::IntegerVariable;
-use crate::predicate;
+use crate::{create_statistics_struct, predicate};
 use crate::pumpkin_assert_simple;
+use crate::statistics::{Statistic, StatisticLogger};
+
+create_statistics_struct!(
+    LinearLessOrEqualStatistics {
+        is_learned: bool,
+        number_of_executions: u64,
+        number_of_propagations: u64
+    }
+);
 
 /// Propagator for the constraint `reif => \sum x_i <= c`.
 #[derive(Clone, Debug)]
@@ -25,6 +35,8 @@ pub(crate) struct LinearLessOrEqualPropagator<Var> {
     lower_bound_left_hand_side: i64,
     /// The value at index `i` is the bound for `x[i]`.
     current_bounds: Box<[i32]>,
+
+    statistics: LinearLessOrEqualStatistics,
 }
 
 impl<Var> LinearLessOrEqualPropagator<Var>
@@ -40,7 +52,14 @@ where
             c,
             lower_bound_left_hand_side: 0,
             current_bounds,
+            statistics: LinearLessOrEqualStatistics::default(),
         }
+    }
+
+    pub(crate) fn new_learned(x: Box<[Var]>, c: i32) -> Self {
+        let mut new = Self::new(x, c);
+        new.statistics.is_learned = true;
+        new
     }
 
     /// Recalculates the incremental state from scratch.
@@ -148,6 +167,8 @@ where
     }
 
     fn propagate(&mut self, mut context: PropagationContextMut) -> PropagationStatusCP {
+        self.statistics.number_of_executions += 1;
+
         if let Some(conjunction) = self.detect_inconsistency(context.as_readonly()) {
             return Err(conjunction.into());
         }
@@ -172,11 +193,16 @@ where
                     })
                     .collect();
 
+                self.statistics.number_of_propagations += 1;
                 context.set_upper_bound(x_i, bound, reason)?;
             }
         }
 
         Ok(())
+    }
+
+    fn log_statistics(&self, statistic_logger: StatisticLogger) {
+        self.statistics.log(statistic_logger);
     }
 
     fn debug_propagate_from_scratch(

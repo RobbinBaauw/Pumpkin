@@ -1,10 +1,9 @@
+use crate::engine::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::predicates::Predicate;
-use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
-use crate::variables::{AffineView, DomainId};
 
 #[derive(Clone, Debug)]
 pub struct LearnedConstraint {
-    pub(crate) learned_constraint: Box<LinearLessOrEqualPropagator<AffineView<DomainId>>>,
+    pub(crate) constraint: LinearLessOrEqual,
     pub(crate) backjump_level: usize,
 }
 

@@ -276,12 +276,13 @@ impl ConflictResolver for IntSatConflictResolver {
             for backjump_level in (0..current_decision_level).rev() {
                 let trail_level = context.assignments.trail.get_trail_position_for_decision_level(backjump_level);
 
-                let is_propagating_or_false = conflicting_constraint.is_propagating(context.assignments, Some(trail_level)) ||
-                    conflicting_constraint.is_conflicting(context.assignments, Some(trail_level));
+                let is_propagating = conflicting_constraint.is_propagating(context.assignments, Some(trail_level));
+                let is_false = conflicting_constraint.is_conflicting(context.assignments, Some(trail_level));
+                debug!("==> Checking decision/trail level ({backjump_level}/{trail_level}) for propagation/false: {is_propagating}/{is_false}");
 
-                debug!("==> Checking decision/trail level ({backjump_level}/{trail_level}) for propagation/false: {is_propagating_or_false}");
+                if is_false { unreachable!("Shouldn't be possible!") }
 
-                if is_propagating_or_false {
+                if is_propagating {
                     debug!("==> Backtrack to {backjump_level}: {conflicting_constraint}");
 
                     // Running resolution resolver to update activities
@@ -292,10 +293,8 @@ impl ConflictResolver for IntSatConflictResolver {
                     context.counters.intsat_statistics.intsat_learned_constraints_avg_length.add_term(conflicting_constraint.lhs.len() as u64);
                     context.counters.intsat_statistics.intsat_constraint_avg_lhs_coeff.add_term(conflicting_constraint.lhs.iter().map(|(_, scale)| scale.abs()).max().unwrap() as u64);
 
-                    let vars = conflicting_constraint.lhs.iter().map(|(id, scale)| id.scaled(*scale)).collect();
-
                     return Some(Constraint(LearnedConstraint {
-                        learned_constraint: Box::new(LinearLessOrEqualPropagator::new(vars, conflicting_constraint.rhs)),
+                        constraint: conflicting_constraint,
                         backjump_level,
                     }));
                 }
@@ -312,7 +311,8 @@ impl ConflictResolver for IntSatConflictResolver {
 
         context.backtrack(learned_constraint.backjump_level);
 
-        let new_propagator_id = context.propagators.alloc(learned_constraint.learned_constraint.clone(), None);
+        let new_linear_prop = LinearLessOrEqualPropagator::new_learned(learned_constraint.constraint.to_vars().into_boxed_slice(), learned_constraint.constraint.rhs);
+        let new_propagator_id = context.propagators.alloc(Box::new(new_linear_prop), None);
         let new_propagator = &mut context.propagators[new_propagator_id];
 
         let mut initialisation_context = PropagatorInitialisationContext::new(
