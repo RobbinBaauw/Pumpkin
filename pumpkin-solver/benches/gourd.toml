@@ -8,6 +8,7 @@ warn_on_label_overlap = false
 experiment_name = "intsat_bench_1"
 partition = "compute"
 account = "Education-EEMCS-MSc-CS"
+output_folder = "./"
 
 [resource_limits]
 time_limit = "1h"
@@ -32,5 +33,5 @@ afterscript = "./afterscript.py"
 
 [input]
 
-[inputs.minizinc]
-arguments = ["glob|./benchmark-set/**/*.fzn"]
+[input.minizinc]
+arguments = ["path|./benchmark-set/**/*.fzn"]

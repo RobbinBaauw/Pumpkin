@@ -32,7 +32,7 @@ struct Args {
     verbose: bool,
 
     #[arg(long = "time-limit")]
-    time_limit: u64,
+    time_limit: Option<u64>,
 }
 
 fn configure_logging_minizinc(stat_header: &'static str, verbose: bool, log_statistics: bool) -> std::io::Result<()> {
@@ -91,7 +91,8 @@ fn main() {
         learning_options: LearningOptions::default(),
     };
 
-    let time_limit = Duration::from_millis(args.time_limit);
+    let time_limit = args.time_limit.map(Duration::from_millis);
+
     let instance_path = args
         .instance_path
         .to_str()
@@ -100,7 +101,7 @@ fn main() {
     flatzinc::solve(
         Solver::with_options(solver_options),
         instance_path,
-        Some(time_limit),
+        time_limit,
         FlatZincOptions {
             free_search: false,
             all_solutions: false,
