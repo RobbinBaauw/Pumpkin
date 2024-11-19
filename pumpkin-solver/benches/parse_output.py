@@ -66,6 +66,22 @@ class RunResult:
     run_error: Optional[RunError]
     run_data: Optional[RunData]
 
+    def short_result(self):
+        if self.run_error is not None:
+            return "E"
+
+        if self.run_data is None:
+            return "?"
+
+        if self.wall_time > 3600 or self.run_data.result == Result.UNKNOWN:
+            return "T"
+
+        if self.run_data.result == Result.SUCCESS:
+            return "S"
+
+        if self.run_data.result == Result.UNSAT:
+            return "U"
+
 
 Results = Dict[str, List[Optional[RunResult]]]
 
@@ -293,9 +309,9 @@ def results_to_table(results: Results):
         best_conf = min(conf_values)
         all_conf_same = len(conf_values) > 1 and all(x == conf_values[0] for x in conf_values)
 
-        table.append([prob, (res_conflicts, res_conflicts == best_conf and not all_conf_same),
-                      (intsat_skip_conflicts, intsat_skip_conflicts == best_conf and not all_conf_same), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations,
-                      (intsat_conflicts, intsat_conflicts == best_conf and not all_conf_same), intsat_constraints, intsat_fallbacks, intsat_learned_propagations])
+        table.append([prob, (f"{res_conflicts if res_conflicts is not None else '-'} ({resolution.short_result()})", res_conflicts == best_conf and not all_conf_same),
+                      (f"{intsat_skip_conflicts if intsat_skip_conflicts is not None else '-'} ({intsat_skip.short_result()})", intsat_skip_conflicts == best_conf and not all_conf_same), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations,
+                      (f"{intsat_conflicts if intsat_conflicts is not None else '-'} ({intsat.short_result()})", intsat_conflicts == best_conf and not all_conf_same), intsat_constraints, intsat_fallbacks, intsat_learned_propagations])
 
     return sorted(table, key=lambda r: r[0])
 
@@ -383,9 +399,9 @@ if __name__ == "__main__":
     with open('results_out.pkl', 'rb') as results_file:
         results = pickle.load(results_file)
 
-    # table = results_to_table(results)
-    # print(table_to_latex(table))
+    table = results_to_table(results)
+    print(table_to_latex(table))
 
-    # print_errored_problems(results)
+    print_errored_problems(results)
 
-    verify_solutions(results)
+    # verify_solutions(results)
