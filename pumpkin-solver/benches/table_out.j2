@@ -1,0 +1,49 @@
+\begin{table}
+\centering
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{
+    {% for child_heads in headers.values() -%}
+        {{ 'c' * child_heads|length }}
+        {%- if not loop.last %} | {% endif -%}
+    {%- endfor -%}
+}
+\hline
+
+\toprule
+
+{% for (parent_head, child_heads) in headers.items() -%}
+    \multicolumn{ {{ child_heads | length }} }{c|}{ {{ parent_head }} }
+    {%- if not loop.last -%} & {%- endif -%}
+{%- endfor -%} \\
+
+\midrule
+
+{% for child_heads in headers.values() -%}
+    {% set outer_loop = loop %}
+    {%- for head in child_heads -%}
+        {{ head }}
+        {%- if not (loop.last and outer_loop.last) %} & {% endif -%}
+    {%- endfor -%}
+{%- endfor %} \\
+
+\hline
+
+{% for row in rows %}
+    {%- for col in row -%}
+        {%- set val = col[0] if col is tuple else col -%}
+        {%- set val_format = (val if val is not none else "-") | replace("_", "\_") -%}
+
+        {%- if col is tuple and col[1] -%}
+        \textbf{ {{ val_format }} }
+        {%- else -%}
+        {{ val_format }}
+        {%- endif -%}
+        {% if not loop.last %} & {% endif %}
+    {%- endfor -%} \\
+{% endfor %}
+
+\bottomrule
+
+\end{tabular}
+}
+\end{table}

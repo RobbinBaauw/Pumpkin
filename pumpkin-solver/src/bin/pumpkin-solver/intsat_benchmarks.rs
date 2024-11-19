@@ -69,7 +69,7 @@ fn main() {
 
     let args = Args::parse();
 
-    println!("Executing {:?}", args.instance_path.file_name().unwrap());
+    println!("Executing {:?}", args.instance_path);
 
     let stat_header = STAT_HEADER.get_or_init(|| format!("$stat$-I{:?}-SL{:?}", args.use_intsat, args.skip_nogood_learning));
     let _ = configure_logging_minizinc(stat_header, args.verbose, true);

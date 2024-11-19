@@ -24,14 +24,14 @@ arguments = ["--time-limit", "3600000"]
 binary = "./intsat_benchmarks"
 arguments = ["--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
 
-[program.intsat-learn]
-binary = "./intsat_benchmarks"
-arguments = ["--use-intsat", "--time-limit", "3600000"]
+#[program.intsat-learn]
+#binary = "./intsat_benchmarks"
+#arguments = ["--use-intsat", "--time-limit", "3600000"]
 
 [input]
 
 [input.benchmarks]
 arguments = ["path|/scratch/rbaauw/benchmarks-set-small/**/*.fzn"]
 
-[input.examples]
-arguments = ["path|/scratch/rbaauw/examples-set/**/*.fzn"]
+#[input.examples]
+#arguments = ["path|/scratch/rbaauw/examples-set/**/*.fzn"]

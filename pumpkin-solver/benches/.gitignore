@@ -2,3 +2,4 @@ benchmarks-set/
 examples-set/
 experiments/
 results/
+*.pkl
