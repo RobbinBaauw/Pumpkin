@@ -7,7 +7,7 @@ warn_on_label_overlap = false
 [slurm]
 experiment_name = "intsat_bench_1"
 partition = "compute"
-account = "Education-EEMCS-MSc-CS"
+account = "education-eemcs-msc-cs"
 output_folder = "./"
 
 [resource_limits]
@@ -31,7 +31,7 @@ arguments = ["--use-intsat", "--time-limit", "3600000"]
 [input]
 
 [input.benchmarks]
-arguments = ["path|./benchmarks-set/**/*.fzn"]
+arguments = ["path|/scratch/rbaauw/benchmarks-set-small/**/*.fzn"]
 
 [input.examples]
-arguments = ["path|./examples-set/**/*.fzn"]
+arguments = ["path|/scratch/rbaauw/examples-set/**/*.fzn"]

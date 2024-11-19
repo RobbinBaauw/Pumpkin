@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry::Occupied;
 use crate::basic_types::StoredConflictInfo;
 use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
-use crate::variables::{DomainId, TransformableVariable};
+use crate::variables::DomainId;
 use std::collections::HashMap;
 use log::{debug, trace};
 use crate::basic_types::moving_averages::MovingAverage;
@@ -272,17 +272,24 @@ impl ConflictResolver for IntSatConflictResolver {
                 continue;
             }
 
-            // TODO checkout original implementation
-            for backjump_level in (0..current_decision_level).rev() {
+            // IntSat:
+            // - find the bounds to undo: all bounds in the trail about the variables in the learned constraint
+            // - sort bounds by heights
+            // - if at the current level, it is false (or asserting), update the lowest level & whether it's asserting there. Continue until all bounds have been popped
+            // - if it's still conflicting: return decision level 0
+            // - if it's still asserting: return decision level 0
+            // - if it's at the current DL: return -1
+            // - otherwise, return found values
+
+            // We mimic this by going from 0..current level and checking whether our constraint is conflicting/propagating at that level
+            for backjump_level in 0..current_decision_level {
                 let trail_level = context.assignments.trail.get_trail_position_for_decision_level(backjump_level);
 
                 let is_propagating = conflicting_constraint.is_propagating(context.assignments, Some(trail_level));
                 let is_false = conflicting_constraint.is_conflicting(context.assignments, Some(trail_level));
                 debug!("==> Checking decision/trail level ({backjump_level}/{trail_level}) for propagation/false: {is_propagating}/{is_false}");
 
-                if is_false { unreachable!("Shouldn't be possible!") }
-
-                if is_propagating {
+                if is_propagating || is_false {
                     debug!("==> Backtrack to {backjump_level}: {conflicting_constraint}");
 
                     // Running resolution resolver to update activities
@@ -321,13 +328,13 @@ impl ConflictResolver for IntSatConflictResolver {
             &context.assignments,
         );
 
-        let initialisation_status = new_propagator.initialise_at_root(&mut initialisation_context);
-        if initialisation_status.is_err() {
-            Err(())
-        } else {
-            context.propagator_queue.enqueue_propagator(new_propagator_id, new_propagator.priority());
-            Ok(())
-        }
+        let _ = new_propagator.initialise_at_root(&mut initialisation_context);
+
+        // We know this the previous call can result in Err (as we also backtrack when the constraint is still conflicting)
+        // We do not return an error however, as the fact that the propagator is not happy will be detected next cycle
+        // IntSat: re-start conflict analysis in this case, we mimic this here
+        context.propagator_queue.enqueue_propagator(new_propagator_id, new_propagator.priority());
+        Ok(())
     }
 }
 

@@ -1,11 +1,10 @@
 use itertools::Itertools;
 use crate::basic_types::PropositionalConjunction;
 use crate::basic_types::PropagationStatusCP;
-use crate::containers::StorageKey;
 use crate::engine::cp::propagation::ReadDomains;
 use crate::engine::domain_events::DomainEvents;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
-use crate::engine::propagation::{EnqueueDecision, PropagatorId};
+use crate::engine::propagation::EnqueueDecision;
 use crate::engine::propagation::LocalId;
 use crate::engine::propagation::PropagationContext;
 use crate::engine::propagation::PropagationContextMut;

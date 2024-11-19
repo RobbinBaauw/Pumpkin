@@ -7,14 +7,14 @@ from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from typing import Optional
 
-BENCH_DIR = Path(__file__).parent / "minizinc-benchmarks"
-BENCH_SET_DIR = Path(__file__).parent / "benchmarks-set"
+BENCH_DIR = Path(__file__).parent / "benchmarks-set-small"
+BENCH_SET_DIR = Path(__file__).parent / "benchmarks-set-small"
 
 PUMPKIN_SOLVER = Path(__file__).parent.parent.parent / "minizinc" / "pumpkin-linear-ineq.msc"
 
-TOTAL_SAMPLES = 500
+TOTAL_SAMPLES = 2000
 
-thread_pool = ThreadPool(12)
+thread_pool = ThreadPool()
 
 
 def find_fzn_name_path(mzn_path: Path, dzn_path: Optional[Path]):
@@ -86,43 +86,32 @@ def generate_fzn():
 def select_fzn():
     BENCH_SET_DIR.mkdir(exist_ok=True)
 
-    mzn_dzn_files = []
+    mzn_fzn_files = []
 
     for f in BENCH_DIR.iterdir():
         if f.is_dir():
-            mzn_files = list(f.rglob("./*.mzn"))
-            dzn_files = list(f.rglob("./*.dzn"))
-            if len(mzn_files) > 0 and len(dzn_files) == 0:
-                dzn_files = [None]
+            mzn_fzn_files.append((f, list(f.rglob("./*.fzn"))))
 
-            mzn_dzn_files.extend([(mzn, dzn_files) for mzn in mzn_files])
-
-    mzn_dzn_files = list(filter(lambda i: len(i[1]) != 0, mzn_dzn_files))
+    mzn_fzn_files = list(filter(lambda i: len(i[1]) != 0, mzn_fzn_files))
 
     mzn_fzn_paths = defaultdict(list)
     bench_idx = defaultdict(lambda: 0)
 
-    def add_next_file(mzn, dzns):
+    def add_next_file(mzn, fzns):
         while True:
-            dzn_idx = bench_idx[mzn_idx]
+            fzn_idx = bench_idx[mzn_idx]
 
-            if dzn_idx >= len(dzns):
+            if fzn_idx >= len(fzns):
                 return
             else:
                 bench_idx[mzn_idx] += 1
-
-                fzn_name, fzn_path = find_fzn_name_path(mzn, dzns[dzn_idx])
-                if not fzn_path.exists():
-                    print(f"{fzn_name} doesn't exist, try next")
-                    continue
-
-                mzn_fzn_paths[mzn.parent.name].append(fzn_path)
+                mzn_fzn_paths[mzn.name].append(fzns[fzn_idx])
                 return
 
     prev_size = 0
     while get_total_values_size(mzn_fzn_paths) < TOTAL_SAMPLES:
-        for mzn_idx, (mzn, dzns) in enumerate(mzn_dzn_files):
-            add_next_file(mzn, dzns)
+        for mzn_idx, (mzn, fzns) in enumerate(mzn_fzn_files):
+            add_next_file(mzn, fzns)
 
         new_size = get_total_values_size(mzn_fzn_paths)
         if prev_size == new_size:
@@ -148,5 +137,5 @@ def get_total_values_size(mzn_fzn_paths):
 
 
 if __name__ == "__main__":
-    generate_fzn()
-    # select_fzn()
+    # generate_fzn()
+    select_fzn()

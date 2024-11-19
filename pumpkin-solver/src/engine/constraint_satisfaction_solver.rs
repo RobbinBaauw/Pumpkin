@@ -53,7 +53,7 @@ use crate::engine::DebugHelper;
 use crate::engine::IntDomainEvent;
 use crate::engine::RestartOptions;
 use crate::engine::RestartStrategy;
-use crate::{conjunction, predicate};
+use crate::predicate;
 use crate::proof::ProofLog;
 use crate::propagators::nogoods::LearningOptions;
 use crate::propagators::nogoods::NogoodPropagator;
