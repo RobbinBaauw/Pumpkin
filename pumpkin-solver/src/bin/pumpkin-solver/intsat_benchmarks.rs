@@ -65,7 +65,7 @@ fn configure_logging_minizinc(stat_header: &'static str, verbose: bool, log_stat
 static STAT_HEADER: OnceLock<String> = OnceLock::new();
 
 fn main() {
-    println!("V2");
+    println!("V3");
 
     let args = Args::parse();
 

@@ -1,5 +1,6 @@
 import json
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -8,10 +9,10 @@ from pathlib import Path
 from typing import Dict, Optional, List
 import pickle
 
-from jinja2 import Environment, PackageLoader, select_autoescape, FileSystemLoader
+from jinja2 import Environment, select_autoescape, FileSystemLoader
 from pip._vendor import tomli
-import jinja2
 
+BENCH_DIR = Path(__file__).parent / "examples-set"
 BASE_DIR = Path(__file__).parent / "results" / "experiments"
 
 
@@ -30,10 +31,6 @@ class Result(Enum):
 
 @dataclass
 class RunData:
-    bench_version: str
-
-    fzn_file_name: str
-
     result: Result
     result_values: Optional[str]
 
@@ -63,6 +60,9 @@ class RunResult:
     exit_code: int
     wall_time: int
 
+    bench_version: str
+    fzn_file_name: str
+
     run_error: Optional[RunError]
     run_data: Optional[RunData]
 
@@ -91,7 +91,7 @@ def parse_stat_line(stat_line: str):
     if stat_res is None:
         raise RuntimeError(f"Cannot parse line {stat_line}")
 
-    return bool(stat_res.group(1)), bool(stat_res.group(2)), stat_res.group(3), json.loads(stat_res.group(4))
+    return json.loads(stat_res.group(1)), json.loads(stat_res.group(2)), stat_res.group(3), json.loads(stat_res.group(4))
 
 
 def parse_stdout(stdout_path: Path):
@@ -111,7 +111,7 @@ def parse_stdout(stdout_path: Path):
 
     # If we only have 2 full lines, we're not done solving
     if len(stdout) <= 2 or len(stdout[2]) == 0:
-        return None
+        return version, file_name, None
 
     result_line_i = 2
     if "=====UNKNOWN=====" in stdout[result_line_i]:
@@ -178,9 +178,7 @@ def parse_stdout(stdout_path: Path):
                 case "number_of_propagations":
                     linear_leq_id_values[linear_leq_id].num_propagations = value
 
-    return RunData(version,
-                   file_name,
-                   result,
+    return version, file_name, RunData(result,
                    result_values,
                    use_intsat,
                    skip_nogood_learning,
@@ -208,19 +206,18 @@ def parse_results_dir(results_dir: Path):
             print(f"Parsing {exp_dir}")
             exit_code, wall_time = parse_metrics(exp_dir / "metrics")
             run_err = parse_stderr(exp_dir / "stderr")
-            run_data = parse_stdout(exp_dir / "stdout")
-            results.append(RunResult(exit_code, wall_time, run_err, run_data))
+            version, file_name, run_data = parse_stdout(exp_dir / "stdout")
+            results.append(RunResult(exit_code, wall_time, version, file_name, run_err, run_data))
 
     return results
 
 
-def solved_problem_names(*runs: List[RunResult]):
+def problem_names(*runs: List[RunResult]):
     problems = set()
 
     for run in runs:
         for res in run:
-            if res.run_data is not None:
-                problems.add(res.run_data.fzn_file_name)
+            problems.add(res.fzn_file_name)
 
     return list(problems)
 
@@ -228,23 +225,25 @@ def solved_problem_names(*runs: List[RunResult]):
 
 def update_results(results: Results, prog_results: List[RunResult], prog_idx: int):
     for prog_res in prog_results:
-        if prog_res.run_data is not None:
-            results[prog_res.run_data.fzn_file_name][prog_idx] = prog_res
+        results[prog_res.fzn_file_name][prog_idx] = prog_res
 
 
 def parse_results():
     resolution_results = parse_results_dir(BASE_DIR / "1" / "2")
-    intsat_skip_results = parse_results_dir(BASE_DIR / "3" / "0")
-    intsat_results = parse_results_dir(BASE_DIR / "3" / "1")
+    intsat_results = parse_results_dir(BASE_DIR / "3" / "0")
+    intsat_skip_results = parse_results_dir(BASE_DIR / "3" / "1")
+
+    assert all(map(lambda r: r.run_data is None or (r.run_data.use_intsat and not r.run_data.skip_nogood_learning), intsat_results))
+    assert all(map(lambda r: r.run_data is None or (r.run_data.use_intsat and r.run_data.skip_nogood_learning), intsat_skip_results))
 
     results = {
         prob: [None, None, None]
-        for prob in solved_problem_names(resolution_results, intsat_skip_results, intsat_results)
+        for prob in problem_names(resolution_results, intsat_skip_results, intsat_results)
     }
 
     update_results(results, resolution_results, 0)
-    update_results(results, intsat_skip_results, 1)
-    update_results(results, intsat_results, 2)
+    update_results(results, intsat_results, 1)
+    update_results(results, intsat_skip_results, 2)
 
     with open('results_out.pkl', 'wb') as results_out:
         pickle.dump(results, results_out, pickle.HIGHEST_PROTOCOL)
@@ -271,7 +270,7 @@ def results_to_table(results: Results):
 
         if not did_fail(intsat_skip):
             intsat_skip_conflicts = intsat_skip.run_data.num_conflicts
-            intsat_skip_constraints = intsat_skip.run_data.num_conflicts
+            intsat_skip_constraints = intsat_skip.run_data.intsat_learned_constraints
             intsat_skip_fallbacks = intsat_skip.run_data.intsat_fallback_used
             intsat_skip_learned_propagations = sum(map(lambda leq: leq.num_propagations if leq.is_learned else 0, intsat_skip.run_data.linear_leqs.values()))
         else:
@@ -279,26 +278,26 @@ def results_to_table(results: Results):
 
         if not did_fail(intsat):
             intsat_conflicts = intsat.run_data.num_conflicts
-            intsat_constraints = intsat.run_data.num_conflicts
+            intsat_constraints = intsat.run_data.intsat_learned_constraints
             intsat_fallbacks = intsat.run_data.intsat_fallback_used
             intsat_learned_propagations = sum(map(lambda leq: leq.num_propagations if leq.is_learned else 0, intsat.run_data.linear_leqs.values()))
         else:
             intsat_conflicts = intsat_constraints = intsat_fallbacks = intsat_learned_propagations = None
 
         if did_fail(resolution) and did_fail(intsat_skip) and did_fail(intsat):
-            results.pop(prob)
             continue
 
-        best_conf = min(
-            res_conflicts if res_conflicts is not None else sys.maxsize,
-            intsat_skip_conflicts if intsat_skip_conflicts is not None else sys.maxsize,
-            intsat_conflicts if intsat_conflicts is not None else sys.maxsize)
+        conf_values = [res_conflicts, intsat_skip_conflicts, intsat_conflicts]
+        conf_values = list(filter(lambda x: x is not None, conf_values))
 
-        table.append([prob, (res_conflicts, res_conflicts == best_conf),
-                      (intsat_skip_conflicts, intsat_skip_conflicts == best_conf), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations,
-                      (intsat_conflicts, intsat_conflicts == best_conf), intsat_constraints, intsat_fallbacks, intsat_learned_propagations])
+        best_conf = min(conf_values)
+        all_conf_same = len(conf_values) > 1 and all(x == conf_values[0] for x in conf_values)
 
-    table_to_latex(table)
+        table.append([prob, (res_conflicts, res_conflicts == best_conf and not all_conf_same),
+                      (intsat_skip_conflicts, intsat_skip_conflicts == best_conf and not all_conf_same), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations,
+                      (intsat_conflicts, intsat_conflicts == best_conf and not all_conf_same), intsat_constraints, intsat_fallbacks, intsat_learned_propagations])
+
+    return sorted(table, key=lambda r: r[0])
 
 
 def table_to_latex(table):
@@ -312,20 +311,81 @@ def table_to_latex(table):
     headers = {
         "": ["Problem"],
         "Resolution": ["\# conf"],
-        "IntSat skip learning": ["\# conf", "\# lear constr", "\# fallb", "\# learn prop"],
         "IntSat": ["\# conf", "\# lear constr", "\# fallb", "\# learn prop"],
+        "IntSat skip nogood learning": ["\# conf", "\# lear constr", "\# fallb", "\# learn prop"],
     }
     rendered = template.render({
         "headers": headers,
         "rows": table
     })
 
-    print(rendered)
+    return rendered
 
+
+def print_errored_problems(results: Results):
+    for (prob, progs_res) in results.items():
+        for i, prog_res in enumerate(progs_res):
+            if prog_res is None:
+                continue
+
+            if prog_res.run_error is None:
+                continue
+
+            # Ignore errors about unbounded ints/floats
+            if (("UnsupportedVariable(\"unbounded int\")" in prog_res.run_error.stderr) or
+                    ("UnsupportedVariable(\"float\")" in prog_res.run_error.stderr) or
+                    ("floats are not supported" in prog_res.run_error.stderr)):
+                continue
+
+            print(f"Found error in {prob} (program {i})")
+            print(prog_res.run_error.stderr)
+            print("=======")
+
+
+def verify_solution(result: RunResult):
+    if (result.run_error is not None) or (result.run_data is None):
+        print(f"Not verifying solution {result.fzn_file_name} with error")
+        return
+
+    if result.run_data.result is not Result.SUCCESS:
+        print(f"Not verifying solution {result.fzn_file_name} with result {result.run_data.result}")
+        return
+
+    if result.run_data.result_values is None:
+        print(f"Not verifying solution {result.fzn_file_name} with empty result {result.run_data.result_values}")
+        return
+
+    bench_dir_names = list(map(lambda f: f.name, filter(lambda f: f.is_dir(), BENCH_DIR.iterdir())))
+
+    result_dir_name = next((dir_name for dir_name in bench_dir_names if result.fzn_file_name.startswith(dir_name)))
+    fzn_path = BENCH_DIR / result_dir_name / result.fzn_file_name
+
+    cmd = ["minizinc", str(fzn_path), "-D", f"\"{result.run_data.result_values}\""]
+    res = str(subprocess.check_output(" ".join(cmd), shell=True))
+
+    if (("==UNSATISFIABLE==" in res) or
+        ("==UNBOUNDED==" in res) or
+        ("==UNSATorUNBOUNDED==" in res) or
+        ("==UNKNOWN==" in res) or
+        ("==ERROR==" in res)):
+        print(f"Not sure if output is correct: {res} \n with for {result.fzn_file_name}")
+
+
+def verify_solutions(results: Results):
+    for progs_res in results.values():
+        for prog_res in progs_res:
+            verify_solution(prog_res)
 
 
 if __name__ == "__main__":
     # parse_results()
 
-    with open('results_out.pkl', 'rb') as results:
-        results_to_table(pickle.load(results))
+    with open('results_out.pkl', 'rb') as results_file:
+        results = pickle.load(results_file)
+
+    # table = results_to_table(results)
+    # print(table_to_latex(table))
+
+    # print_errored_problems(results)
+
+    verify_solutions(results)

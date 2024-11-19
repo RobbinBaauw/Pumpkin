@@ -12,7 +12,7 @@
 \toprule
 
 {% for (parent_head, child_heads) in headers.items() -%}
-    \multicolumn{ {{ child_heads | length }} }{c|}{ {{ parent_head }} }
+    \multicolumn{ {{ child_heads | length }} }{c|}{ \textbf{ {{ parent_head }} } }
     {%- if not loop.last -%} & {%- endif -%}
 {%- endfor -%} \\
 
@@ -21,7 +21,7 @@
 {% for child_heads in headers.values() -%}
     {% set outer_loop = loop %}
     {%- for head in child_heads -%}
-        {{ head }}
+        \textbf{ {{ head }} }
         {%- if not (loop.last and outer_loop.last) %} & {% endif -%}
     {%- endfor -%}
 {%- endfor %} \\

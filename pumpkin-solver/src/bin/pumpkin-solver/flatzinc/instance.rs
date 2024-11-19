@@ -27,6 +27,7 @@ impl FlatzincObjective {
 
 #[derive(Default)]
 pub(crate) struct FlatZincInstance {
+    pub(super) all_variables: Vec<Output>,
     pub(super) outputs: Vec<Output>,
     pub(super) objective_function: Option<FlatzincObjective>,
     pub(super) search: Option<DynamicBrancher>,
