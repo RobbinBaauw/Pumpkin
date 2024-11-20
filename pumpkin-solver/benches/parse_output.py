@@ -5,6 +5,7 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
+from operator import itemgetter
 from pathlib import Path
 from typing import Dict, Optional, List
 import pickle
@@ -83,7 +84,7 @@ class RunResult:
             return "U"
 
 
-Results = Dict[str, List[Optional[RunResult]]]
+Results = Dict[str, Dict[str, Optional[RunResult]]]
 
 def parse_metrics(metrics_path: Path):
     with open(metrics_path, 'rb') as metrics_file:
@@ -194,6 +195,8 @@ def parse_stdout(stdout_path: Path):
                 case "number_of_propagations":
                     linear_leq_id_values[linear_leq_id].num_propagations = value
 
+    linear_leq_id_values = {k: v for k, v in linear_leq_id_values.items() if v.is_learned}
+
     return version, file_name, RunData(result,
                    result_values,
                    use_intsat,
@@ -206,7 +209,7 @@ def parse_stdout(stdout_path: Path):
                    intsat_learned_constraints_avg_length,
                    intsat_learned_constraints_avg_coeff,
                    intsat_fallback_used,
-                   dict(linear_leq_id_values))
+                   linear_leq_id_values)
 
 
 def parse_results_dir(results_dir: Path):
@@ -239,29 +242,49 @@ def problem_names(*runs: List[RunResult]):
 
 
 
-def update_results(results: Results, prog_results: List[RunResult], prog_idx: int):
+def update_results(results: Results, prog_results: List[RunResult], prog_name: str):
     for prog_res in prog_results:
-        results[prog_res.fzn_file_name][prog_idx] = prog_res
+        results[prog_res.fzn_file_name][prog_name] = prog_res
 
 
-def parse_results():
+def parse_bench_results():
+    intsat_results = parse_results_dir(BASE_DIR / "4" / "0")
+    resolution_results = parse_results_dir(BASE_DIR / "4" / "1")
+
+    assert all(map(lambda r: r.run_data is None or (not r.run_data.use_intsat and not r.run_data.skip_nogood_learning), resolution_results))
+    assert all(map(lambda r: r.run_data is None or (r.run_data.use_intsat and not r.run_data.skip_nogood_learning), intsat_results))
+
+    results = {
+        prob: {}
+        for prob in problem_names(resolution_results, intsat_results)
+    }
+
+    update_results(results, resolution_results, "resolution")
+    update_results(results, intsat_results, "intsat")
+
+    with open('results_out_bench.pkl', 'wb') as results_out:
+        pickle.dump(results, results_out, pickle.HIGHEST_PROTOCOL)
+
+
+def parse_examples_results():
     resolution_results = parse_results_dir(BASE_DIR / "1" / "2")
     intsat_results = parse_results_dir(BASE_DIR / "3" / "0")
     intsat_skip_results = parse_results_dir(BASE_DIR / "3" / "1")
 
+    assert all(map(lambda r: r.run_data is None or (not r.run_data.use_intsat and not r.run_data.skip_nogood_learning), resolution_results))
     assert all(map(lambda r: r.run_data is None or (r.run_data.use_intsat and not r.run_data.skip_nogood_learning), intsat_results))
     assert all(map(lambda r: r.run_data is None or (r.run_data.use_intsat and r.run_data.skip_nogood_learning), intsat_skip_results))
 
     results = {
-        prob: [None, None, None]
+        prob: {}
         for prob in problem_names(resolution_results, intsat_skip_results, intsat_results)
     }
 
-    update_results(results, resolution_results, 0)
-    update_results(results, intsat_results, 1)
-    update_results(results, intsat_skip_results, 2)
+    update_results(results, resolution_results, "resolution")
+    update_results(results, intsat_results, "intsat")
+    update_results(results, intsat_skip_results, "intsat_skip")
 
-    with open('results_out.pkl', 'wb') as results_out:
+    with open('results_out_examples.pkl', 'wb') as results_out:
         pickle.dump(results, results_out, pickle.HIGHEST_PROTOCOL)
 
 
@@ -273,11 +296,11 @@ def did_fail(res: Optional[RunResult]):
             (res.run_data.result == Result.UNKNOWN))
 
 
-def results_to_table(results: Results):
+def examples_results_to_table(results: Results):
     table = []
 
     for prob in results.keys():
-        resolution, intsat_skip, intsat = results[prob]
+        resolution, intsat, intsat_skip = itemgetter('resolution', 'intsat', 'intsat_skip')(results[prob])
 
         if not did_fail(resolution):
             res_conflicts = resolution.run_data.num_conflicts
@@ -310,8 +333,8 @@ def results_to_table(results: Results):
         all_conf_same = len(conf_values) > 1 and all(x == conf_values[0] for x in conf_values)
 
         table.append([prob, (f"{res_conflicts if res_conflicts is not None else '-'} ({resolution.short_result()})", res_conflicts == best_conf and not all_conf_same),
-                      (f"{intsat_skip_conflicts if intsat_skip_conflicts is not None else '-'} ({intsat_skip.short_result()})", intsat_skip_conflicts == best_conf and not all_conf_same), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations,
-                      (f"{intsat_conflicts if intsat_conflicts is not None else '-'} ({intsat.short_result()})", intsat_conflicts == best_conf and not all_conf_same), intsat_constraints, intsat_fallbacks, intsat_learned_propagations])
+                      (f"{intsat_conflicts if intsat_conflicts is not None else '-'} ({intsat.short_result()})", intsat_conflicts == best_conf and not all_conf_same), intsat_constraints, intsat_fallbacks, intsat_learned_propagations,
+                      (f"{intsat_skip_conflicts if intsat_skip_conflicts is not None else '-'} ({intsat_skip.short_result()})", intsat_skip_conflicts == best_conf and not all_conf_same), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations])
 
     return sorted(table, key=lambda r: r[0])
 
@@ -340,7 +363,7 @@ def table_to_latex(table):
 
 def print_errored_problems(results: Results):
     for (prob, progs_res) in results.items():
-        for i, prog_res in enumerate(progs_res):
+        for prog_name, prog_res in progs_res.items():
             if prog_res is None:
                 continue
 
@@ -353,7 +376,7 @@ def print_errored_problems(results: Results):
                     ("floats are not supported" in prog_res.run_error.stderr)):
                 continue
 
-            print(f"Found error in {prob} (program {i})")
+            print(f"Found error in {prob} (program {prog_name})")
             print(prog_res.run_error.stderr)
             print("=======")
 
@@ -389,19 +412,20 @@ def verify_solution(result: RunResult):
 
 def verify_solutions(results: Results):
     for progs_res in results.values():
-        for prog_res in progs_res:
+        for prog_res in progs_res.values():
             verify_solution(prog_res)
 
 
 if __name__ == "__main__":
-    # parse_results()
+    # parse_examples_results()
+    # with open('results_out_examples.pkl', 'rb') as results_file:
+    #     results = pickle.load(results_file)
+    # table = examples_results_to_table(results)
+    # print(table_to_latex(table))
 
-    with open('results_out.pkl', 'rb') as results_file:
+    # parse_bench_results()
+    with open('results_out_bench.pkl', 'rb') as results_file:
         results = pickle.load(results_file)
 
-    table = results_to_table(results)
-    print(table_to_latex(table))
-
     print_errored_problems(results)
-
     # verify_solutions(results)

@@ -201,7 +201,9 @@ where
     }
 
     fn log_statistics(&self, statistic_logger: StatisticLogger) {
-        self.statistics.log(statistic_logger);
+        if self.statistics.is_learned {
+            self.statistics.log(statistic_logger);
+        }
     }
 
     fn debug_propagate_from_scratch(
