@@ -22,7 +22,7 @@ impl LinearLessOrEqual {
         self.lhs.iter().map(|(var, scale)| var.scaled(*scale)).collect_vec()
     }
 
-    fn lb_lhs(&self, assignments: &Assignments, trail_position: Option<usize>) -> i64 {
+    pub fn lb_lhs(&self, assignments: &Assignments, trail_position: Option<usize>) -> i64 {
         self
             .lhs
             .iter()

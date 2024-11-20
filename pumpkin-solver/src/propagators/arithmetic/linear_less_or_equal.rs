@@ -18,9 +18,8 @@ use crate::statistics::{Statistic, StatisticLogger};
 
 create_statistics_struct!(
     LinearLessOrEqualStatistics {
-        is_learned: bool,
         number_of_executions: u64,
-        number_of_propagations: u64
+        number_of_propagations: u64,
     }
 );
 
@@ -35,6 +34,8 @@ pub(crate) struct LinearLessOrEqualPropagator<Var> {
     /// The value at index `i` is the bound for `x[i]`.
     current_bounds: Box<[i32]>,
 
+    is_learned: bool,
+    errored_initially: bool,
     statistics: LinearLessOrEqualStatistics,
 }
 
@@ -51,13 +52,15 @@ where
             c,
             lower_bound_left_hand_side: 0,
             current_bounds,
+            is_learned: false,
+            errored_initially: false,
             statistics: LinearLessOrEqualStatistics::default(),
         }
     }
 
     pub(crate) fn new_learned(x: Box<[Var]>, c: i32) -> Self {
         let mut new = Self::new(x, c);
-        new.statistics.is_learned = true;
+        new.is_learned = true;
         new
     }
 
@@ -169,6 +172,7 @@ where
         self.statistics.number_of_executions += 1;
 
         if let Some(conjunction) = self.detect_inconsistency(context.as_readonly()) {
+            if self.statistics.number_of_executions == 1 { self.errored_initially = true; }
             return Err(conjunction.into());
         }
 
@@ -197,11 +201,13 @@ where
             }
         }
 
+        pumpkin_assert_simple!(!self.is_learned || self.errored_initially || self.statistics.number_of_propagations >= 1, "A newly learned constraint should always propagate!");
+
         Ok(())
     }
 
     fn log_statistics(&self, statistic_logger: StatisticLogger) {
-        if self.statistics.is_learned {
+        if self.is_learned {
             self.statistics.log(statistic_logger);
         }
     }

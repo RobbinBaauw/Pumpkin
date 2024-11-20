@@ -53,11 +53,7 @@ impl<T> Trail<T> {
     }
 
     pub(crate) fn get_trail_position_for_decision_level(&self, decision_level: usize) -> usize {
-        if decision_level == 0 {
-            0
-        } else {
-            self.trail_delimiter[decision_level - 1]
-        }
+        self.trail_delimiter[decision_level]
     }
 
     pub(crate) fn synchronise(&mut self, new_decision_level: usize) -> Rev<Drain<T>> {

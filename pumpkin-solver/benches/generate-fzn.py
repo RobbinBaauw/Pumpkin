@@ -7,12 +7,12 @@ from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from typing import Optional
 
-BENCH_DIR = Path(__file__).parent / "benchmarks-set-small"
-BENCH_SET_DIR = Path(__file__).parent / "benchmarks-set-small"
+BENCH_DIR = Path(__file__).parent / "minizinc-benchmarks"
+BENCH_SET_DIR = Path(__file__).parent / "benchmarks-set"
 
 PUMPKIN_SOLVER = Path(__file__).parent.parent.parent / "minizinc" / "pumpkin-linear-ineq.msc"
 
-TOTAL_SAMPLES = 2000
+TOTAL_SAMPLES = 500
 
 thread_pool = ThreadPool()
 

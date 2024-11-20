@@ -418,14 +418,14 @@ def verify_solutions(results: Results):
 
 if __name__ == "__main__":
     # parse_examples_results()
-    # with open('results_out_examples.pkl', 'rb') as results_file:
-    #     results = pickle.load(results_file)
+    with open('results_out_examples.pkl', 'rb') as results_file:
+        results = pickle.load(results_file)
     # table = examples_results_to_table(results)
     # print(table_to_latex(table))
 
     # parse_bench_results()
-    with open('results_out_bench.pkl', 'rb') as results_file:
-        results = pickle.load(results_file)
+    # with open('results_out_bench.pkl', 'rb') as results_file:
+    #     results = pickle.load(results_file)
 
     print_errored_problems(results)
     # verify_solutions(results)

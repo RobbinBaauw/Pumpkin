@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry::Occupied;
 use crate::basic_types::StoredConflictInfo;
 use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
-use crate::variables::DomainId;
+use crate::variables::{DomainId, IntegerVariable, TransformableVariable};
 use std::collections::HashMap;
 use log::{debug, trace};
 use crate::basic_types::moving_averages::MovingAverage;
@@ -142,7 +142,17 @@ impl ConflictResolver for IntSatConflictResolver {
             }
             StoredConflictInfo::EmptyDomain { .. } => {
                 let last_entry = context.assignments.get_last_entry_on_trail();
-                let propagator_id = context.reason_store.get_propagator(last_entry.reason.unwrap());
+
+                // Solver#L1203 has a temporary solution that removes the last tail element, so the reason could also be a decision
+                // In that case, we cannot know which propagator actually propagated the element causing the empty domain...
+                // So for now, revert to resolution instead. TODO change this back when the workaround is removed
+                let Some(last_entry_reason) = last_entry.reason else {
+                    debug!("==> Empty domain because of decision, trying resolution");
+                    context.counters.intsat_statistics.intsat_fallback_used += 1;
+                    return self.resolution_resolver.resolve_conflict(context);
+                };
+
+                let propagator_id = context.reason_store.get_propagator(last_entry_reason);
                 let propagator = &context.propagators[propagator_id];
 
                 match propagator.linear_inequality_explanation() {
@@ -265,6 +275,19 @@ impl ConflictResolver for IntSatConflictResolver {
                 return self.resolution_resolver.resolve_conflict(context);
             }
 
+            // Check for possible overflow later
+            for x_i in new_conflicting_constraint.to_vars() {
+                let bound: Result<i32, _> = (new_conflicting_constraint.slack(context.assignments, Some(trail_index)) +
+                    x_i.lower_bound_at_trail_position(context.assignments, trail_index) as i64)
+                    .try_into();
+
+                if bound.is_err() {
+                    println!("==>==> Possible overflow, trying resolution!");
+                    context.counters.intsat_statistics.intsat_fallback_used += 1;
+                    return self.resolution_resolver.resolve_conflict(context);
+                }
+            }
+
             conflicting_constraint = new_conflicting_constraint;
 
             if skip_early_backjump {
@@ -283,14 +306,16 @@ impl ConflictResolver for IntSatConflictResolver {
 
             // We mimic this by going from 0..current level and checking whether our constraint is conflicting/propagating at that level
             for backjump_level in 0..current_decision_level {
-                let trail_level = context.assignments.trail.get_trail_position_for_decision_level(backjump_level);
+                // The get_trail_position_for_decision_level(backjump_level) returns the length of the trail including the entire backjump level
+                // This means we will be jumping to one index lower
+                let backjump_trail_level = context.assignments.trail.get_trail_position_for_decision_level(backjump_level) - 1;
 
-                let is_propagating = conflicting_constraint.is_propagating(context.assignments, Some(trail_level));
-                let is_false = conflicting_constraint.is_conflicting(context.assignments, Some(trail_level));
-                debug!("==> Checking decision/trail level ({backjump_level}/{trail_level}) for propagation/false: {is_propagating}/{is_false}");
+                let is_propagating = conflicting_constraint.is_propagating(context.assignments, Some(backjump_trail_level));
+                let is_false = conflicting_constraint.is_conflicting(context.assignments, Some(backjump_trail_level));
+                debug!("==> Checking decision/trail level ({backjump_level}/{backjump_trail_level}) for propagation/false: {is_propagating}/{is_false}");
 
                 if is_propagating || is_false {
-                    debug!("==> Backtrack to {backjump_level}: {conflicting_constraint}");
+                    debug!("==> Intending to backtrack to {backjump_level}: {conflicting_constraint}");
 
                     // Running resolution resolver to update activities
                     // Ignore the result
@@ -316,7 +341,11 @@ impl ConflictResolver for IntSatConflictResolver {
             return self.resolution_resolver.process(context, resolve_result);
         };
 
+        debug!("==> Backtrack to {:?} (current = {:?})", learned_constraint.backjump_level, context.assignments.num_trail_entries() - 1);
+
         context.backtrack(learned_constraint.backjump_level);
+
+        debug!("==> Backtracked to {:?} (current = {:?})", context.assignments.get_decision_level(), context.assignments.num_trail_entries() - 1);
 
         let new_linear_prop = LinearLessOrEqualPropagator::new_learned(learned_constraint.constraint.to_vars().into_boxed_slice(), learned_constraint.constraint.rhs);
         let new_propagator_id = context.propagators.alloc(Box::new(new_linear_prop), None);
