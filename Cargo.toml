@@ -18,6 +18,7 @@ authors = [
 lto = true
 panic = 'abort'
 codegen-units = 1
+overflow-checks = true
 
 [profile.rel-with-debug]
 inherits = "release"

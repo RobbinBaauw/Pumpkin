@@ -22,49 +22,67 @@ impl LinearLessOrEqual {
         self.lhs.iter().map(|(var, scale)| var.scaled(*scale)).collect_vec()
     }
 
-    pub fn lb_lhs(&self, assignments: &Assignments, trail_position: Option<usize>) -> i64 {
+    fn lb_lhs_overflows(&self, assignments: &Assignments, trail_position: usize) -> bool {
+        self
+            .lhs
+            .iter()
+            .any(|(var, scale)| {
+                let bound = if *scale < 0 {
+                    var.upper_bound_at_trail_position(assignments, trail_position)
+                } else {
+                    var.lower_bound_at_trail_position(assignments, trail_position)
+                };
+
+                scale.checked_mul(bound).is_none()
+            })
+    }
+
+    pub fn lb_lhs(&self, assignments: &Assignments, trail_position: usize) -> i64 {
         self
             .lhs
             .iter()
             .map(|(var, scale)| {
                 let scaled_var = var.scaled(*scale);
-                if let Some(trail_position_act) = trail_position {
-                    scaled_var.lower_bound_at_trail_position(assignments, trail_position_act) as i64
-                } else {
-                    scaled_var.lower_bound(assignments) as i64
-                }
+                scaled_var.lower_bound_at_trail_position(assignments, trail_position) as i64
             })
             .sum::<i64>()
     }
 
-    pub fn slack(&self, assignments: &Assignments, trail_position: Option<usize>) -> i64 {
+    pub fn slack(&self, assignments: &Assignments, trail_position: usize) -> i64 {
         (self.rhs as i64) - self.lb_lhs(assignments, trail_position)
     }
 
-    pub fn is_conflicting(&self, assignments: &Assignments, trail_position: Option<usize>) -> bool {
+    pub fn is_conflicting(&self, assignments: &Assignments, trail_position: usize) -> bool {
         self.slack(assignments, trail_position) < 0
     }
 
-    pub fn is_propagating(&self, assignments: &Assignments, trail_position: Option<usize>) -> bool {
+    pub fn is_propagating(&self, assignments: &Assignments, trail_position: usize) -> bool {
         let lb_lhs = self.lb_lhs(assignments, trail_position);
 
         for (id, scale) in &self.lhs {
             let x_i = id.scaled(*scale);
 
-            let x_i_lower_bound = if let Some(trail_position_act) = trail_position {
-                x_i.lower_bound_at_trail_position(assignments, trail_position_act) as i64
-            } else {
-                x_i.lower_bound(assignments) as i64
-            };
-
-            let x_i_upper_bound = if let Some(trail_position_act) = trail_position {
-                x_i.upper_bound_at_trail_position(assignments, trail_position_act) as i64
-            } else {
-                x_i.upper_bound(assignments) as i64
-            };
+            let x_i_lower_bound = x_i.lower_bound_at_trail_position(assignments, trail_position) as i64;
+            let x_i_upper_bound = x_i.upper_bound_at_trail_position(assignments, trail_position) as i64;
 
             let bound = (self.rhs as i64) - (lb_lhs - x_i_lower_bound);
             if x_i_upper_bound > bound {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn overflows(&self, assignments: &Assignments, trail_index: usize) -> bool {
+        if self.lb_lhs_overflows(assignments, trail_index) { return true; }
+
+        let slack = self.slack(assignments, trail_index);
+        for x_i in self.to_vars() {
+            let bound: Result<i32, _> = (slack + x_i.lower_bound_at_trail_position(assignments, trail_index) as i64)
+                .try_into();
+
+            if bound.is_err() {
                 return true;
             }
         }

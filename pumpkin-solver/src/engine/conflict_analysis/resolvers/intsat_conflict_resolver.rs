@@ -11,7 +11,7 @@ use crate::engine::conflict_analysis::ConflictResolveResult::{Constraint, Nogood
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
-use crate::pumpkin_assert_ne_simple;
+use crate::{pumpkin_assert_ne_simple, pumpkin_assert_simple};
 
 #[derive(Debug, Default)]
 pub struct IntSatConflictResolver {
@@ -62,9 +62,11 @@ fn apply_cut(var: DomainId, c1: &LinearLessOrEqual, c2: &LinearLessOrEqual) -> C
             skip_early_backjump = false;
         }
 
-        let curr_scale = entry.or_insert(0);
         let Some(new_scale) = mult_c2.checked_mul(*scale) else { return CutResult::Overflow; };
-        *curr_scale += new_scale;
+
+        let curr_scale = entry.or_insert(0);
+        let Some(curr_scale_safe) = curr_scale.checked_add(new_scale) else { return CutResult::Overflow; };
+        *curr_scale = curr_scale_safe;
 
         if *curr_scale == 0 {
             let _ = new_lhs.remove(&id);
@@ -110,19 +112,6 @@ impl ConflictResolver for IntSatConflictResolver {
             debug!("==> Completing proof, trying resolution");
             context.counters.intsat_statistics.intsat_fallback_used += 1;
             return self.resolution_resolver.resolve_conflict(context);
-        }
-
-        trace!("PERFORMING CONFLICT ANALYSIS WITH TRAIL");
-        for i in 0..context.assignments.num_trail_entries() {
-            let entry = context.assignments.get_trail_entry(i);
-            let prop_name = if entry.reason.is_some() {
-                let propagator_id = context.reason_store.get_propagator(entry.reason.unwrap());
-                &context.propagators[propagator_id].name()
-            } else {
-                "decision"
-            };
-
-            trace!("{i} (level {:?}): {:?} ({prop_name})", context.assignments.get_decision_level_for_predicate(&entry.predicate).unwrap(), entry.predicate)
         }
 
         pumpkin_assert_ne_simple!(context.assignments.get_decision_level(), 0);
@@ -195,7 +184,7 @@ impl ConflictResolver for IntSatConflictResolver {
                     continue;
                 };
 
-                if conflicting_constraint.is_conflicting(context.assignments, Some(trail_index)) {
+                if conflicting_constraint.is_conflicting(context.assignments, trail_index) {
                     trail_index -= 1;
                     break trail_entry;
                 }
@@ -268,24 +257,19 @@ impl ConflictResolver for IntSatConflictResolver {
 
             debug!("==> New conflicting constraint after eliminating {:?}: {new_conflicting_constraint}", trail_entry.predicate.get_domain());
 
-            // If this new constraint is not false at the current height, skip!
-            if !new_conflicting_constraint.is_conflicting(context.assignments, Some(trail_index)) {
-                debug!("==> Not conflicting, trying resolution!");
+            // Super inefficient, but necessary...
+            // TODO maybe cache?
+            if new_conflicting_constraint.overflows(context.assignments, trail_index) {
+                debug!("==>==> Possible overflow, trying resolution!");
                 context.counters.intsat_statistics.intsat_fallback_used += 1;
                 return self.resolution_resolver.resolve_conflict(context);
             }
 
-            // Check for possible overflow later
-            for x_i in new_conflicting_constraint.to_vars() {
-                let bound: Result<i32, _> = (new_conflicting_constraint.slack(context.assignments, Some(trail_index)) +
-                    x_i.lower_bound_at_trail_position(context.assignments, trail_index) as i64)
-                    .try_into();
-
-                if bound.is_err() {
-                    println!("==>==> Possible overflow, trying resolution!");
-                    context.counters.intsat_statistics.intsat_fallback_used += 1;
-                    return self.resolution_resolver.resolve_conflict(context);
-                }
+            // If this new constraint is not false at the current height, skip!
+            if !new_conflicting_constraint.is_conflicting(context.assignments, trail_index) {
+                debug!("==> Not conflicting, trying resolution!");
+                context.counters.intsat_statistics.intsat_fallback_used += 1;
+                return self.resolution_resolver.resolve_conflict(context);
             }
 
             conflicting_constraint = new_conflicting_constraint;
@@ -310,8 +294,16 @@ impl ConflictResolver for IntSatConflictResolver {
                 // This means we will be jumping to one index lower
                 let backjump_trail_level = context.assignments.trail.get_trail_position_for_decision_level(backjump_level) - 1;
 
-                let is_propagating = conflicting_constraint.is_propagating(context.assignments, Some(backjump_trail_level));
-                let is_false = conflicting_constraint.is_conflicting(context.assignments, Some(backjump_trail_level));
+                // Super inefficient, but necessary...
+                // TODO maybe cache?
+                if conflicting_constraint.overflows(context.assignments, backjump_trail_level) {
+                    debug!("==>==> Possible overflow, trying resolution!");
+                    context.counters.intsat_statistics.intsat_fallback_used += 1;
+                    return self.resolution_resolver.resolve_conflict(context);
+                }
+
+                let is_propagating = conflicting_constraint.is_propagating(context.assignments, backjump_trail_level);
+                let is_false = conflicting_constraint.is_conflicting(context.assignments, backjump_trail_level);
                 debug!("==> Checking decision/trail level ({backjump_level}/{backjump_trail_level}) for propagation/false: {is_propagating}/{is_false}");
 
                 if is_propagating || is_false {
