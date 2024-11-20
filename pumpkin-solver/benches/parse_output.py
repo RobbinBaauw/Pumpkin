@@ -4,7 +4,6 @@ import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
-from operator import itemgetter
 from pathlib import Path
 from typing import Dict, Optional, List
 import pickle
@@ -18,7 +17,6 @@ BASE_DIR = Path(__file__).parent / "results" / "experiments"
 
 @dataclass
 class LinearLeq:
-    is_learned: bool
     num_executions: int
     num_propagations: int
 
@@ -123,7 +121,7 @@ def parse_stdout(stdout_path: Path):
 
     file_name_match = re.search("^Executing \"(.+)\"", stdout[1])
     if file_name_match is None: raise RuntimeError(f"Invalid file name in stdout {stdout}")
-    file_name = file_name_match.group(1)
+    file_name = file_name_match.group(1).split("/")[-1]
 
     # If we only have 2 full lines, we're not done solving
     if len(stdout) <= 2 or len(stdout[2]) == 0:
@@ -139,7 +137,6 @@ def parse_stdout(stdout_path: Path):
     else:
         result = Result.SUCCESS
 
-        # TODO make sure they always have a result
         if stdout[result_line_i].startswith("$stat$"):
             result_values = None
         else:
@@ -156,7 +153,7 @@ def parse_stdout(stdout_path: Path):
 
     use_intsat, skip_nogood_learning, _, _ = parse_stat_line(stdout[result_line_i + 1])
 
-    linear_leq_id_values = defaultdict(lambda: LinearLeq(False, 0, 0))
+    linear_leq_id_values = defaultdict(lambda: LinearLeq(0, 0))
     for line_i in range(result_line_i + 1, len(stdout)):
         line_val = stdout[line_i]
         if len(line_val) == 0:
@@ -187,14 +184,10 @@ def parse_stdout(stdout_path: Path):
             linear_leq_id, linear_leq_field = int(linear_leq_res.group(1)), linear_leq_res.group(2)
 
             match linear_leq_field:
-                case "is_learned":
-                    linear_leq_id_values[linear_leq_id].is_learned = value
                 case "number_of_executions":
                     linear_leq_id_values[linear_leq_id].num_executions = value
                 case "number_of_propagations":
                     linear_leq_id_values[linear_leq_id].num_propagations = value
-
-    linear_leq_id_values = {k: v for k, v in linear_leq_id_values.items() if v.is_learned}
 
     return version, file_name, RunData(result,
                    result_values,
@@ -208,7 +201,7 @@ def parse_stdout(stdout_path: Path):
                    intsat_learned_constraints_avg_length,
                    intsat_learned_constraints_avg_coeff,
                    intsat_fallback_used,
-                   linear_leq_id_values)
+                   dict(linear_leq_id_values))
 
 
 def parse_results_dir(results_dir: Path):
@@ -266,9 +259,9 @@ def parse_bench_results():
 
 
 def parse_examples_results():
-    resolution_results = parse_results_dir(BASE_DIR / "1" / "2")
-    intsat_results = parse_results_dir(BASE_DIR / "3" / "0")
-    intsat_skip_results = parse_results_dir(BASE_DIR / "3" / "1")
+    resolution_results = parse_results_dir(BASE_DIR / "7" / "1")
+    intsat_results = parse_results_dir(BASE_DIR / "7" / "0")
+    intsat_skip_results = parse_results_dir(BASE_DIR / "8" / "0")
 
     assert all(map(lambda r: r.run_data is None or (not r.run_data.use_intsat and not r.run_data.skip_nogood_learning), resolution_results))
     assert all(map(lambda r: r.run_data is None or (r.run_data.use_intsat and not r.run_data.skip_nogood_learning), intsat_results))
@@ -299,7 +292,8 @@ def examples_results_to_table(results: Results):
     table = []
 
     for prob in results.keys():
-        resolution, intsat, intsat_skip = itemgetter('resolution', 'intsat', 'intsat_skip')(results[prob])
+        prob_results = results[prob]
+        resolution, intsat, intsat_skip = prob_results.get('resolution'), prob_results.get('intsat'), prob_results.get('intsat_skip')
 
         if not did_fail(resolution):
             res_conflicts = resolution.run_data.num_conflicts
@@ -310,7 +304,7 @@ def examples_results_to_table(results: Results):
             intsat_skip_conflicts = intsat_skip.run_data.num_conflicts
             intsat_skip_constraints = intsat_skip.run_data.intsat_learned_constraints
             intsat_skip_fallbacks = intsat_skip.run_data.intsat_fallback_used
-            intsat_skip_learned_propagations = sum(map(lambda leq: leq.num_propagations if leq.is_learned else 0, intsat_skip.run_data.linear_leqs.values()))
+            intsat_skip_learned_propagations = sum(map(lambda leq: leq.num_propagations, intsat_skip.run_data.linear_leqs.values()))
         else:
             intsat_skip_conflicts = intsat_skip_constraints = intsat_skip_fallbacks = intsat_skip_learned_propagations = None
 
@@ -318,7 +312,7 @@ def examples_results_to_table(results: Results):
             intsat_conflicts = intsat.run_data.num_conflicts
             intsat_constraints = intsat.run_data.intsat_learned_constraints
             intsat_fallbacks = intsat.run_data.intsat_fallback_used
-            intsat_learned_propagations = sum(map(lambda leq: leq.num_propagations if leq.is_learned else 0, intsat.run_data.linear_leqs.values()))
+            intsat_learned_propagations = sum(map(lambda leq: leq.num_propagations, intsat.run_data.linear_leqs.values()))
         else:
             intsat_conflicts = intsat_constraints = intsat_fallbacks = intsat_learned_propagations = None
 
@@ -331,9 +325,9 @@ def examples_results_to_table(results: Results):
         best_conf = min(conf_values)
         all_conf_same = len(conf_values) > 1 and all(x == conf_values[0] for x in conf_values)
 
-        table.append([prob, (f"{res_conflicts if res_conflicts is not None else '-'} ({resolution.short_result()})", res_conflicts == best_conf and not all_conf_same),
-                      (f"{intsat_conflicts if intsat_conflicts is not None else '-'} ({intsat.short_result()})", intsat_conflicts == best_conf and not all_conf_same), intsat_constraints, intsat_fallbacks, intsat_learned_propagations,
-                      (f"{intsat_skip_conflicts if intsat_skip_conflicts is not None else '-'} ({intsat_skip.short_result()})", intsat_skip_conflicts == best_conf and not all_conf_same), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations])
+        table.append([prob, (f"{res_conflicts if res_conflicts is not None else '-'} ({resolution.short_result() if resolution is not None else '-'})", res_conflicts == best_conf and not all_conf_same),
+                      (f"{intsat_conflicts if intsat_conflicts is not None else '-'} ({intsat.short_result() if intsat is not None else '-'})", intsat_conflicts == best_conf and not all_conf_same), intsat_constraints, intsat_fallbacks, intsat_learned_propagations,
+                      (f"{intsat_skip_conflicts if intsat_skip_conflicts is not None else '-'} ({intsat_skip.short_result() if intsat_skip_conflicts is not None else '-'})", intsat_skip_conflicts == best_conf and not all_conf_same), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations])
 
     return sorted(table, key=lambda r: r[0])
 
@@ -416,15 +410,15 @@ def verify_solutions(results: Results):
 
 
 if __name__ == "__main__":
-    # parse_examples_results()
-    # with open('results_out_examples.pkl', 'rb') as results_file:
-    #     results = pickle.load(results_file)
-    # table = examples_results_to_table(results)
-    # print(table_to_latex(table))
+    parse_examples_results()
+    with open('results_out_examples.pkl', 'rb') as results_file:
+        results = pickle.load(results_file)
+    table = examples_results_to_table(results)
+    print(table_to_latex(table))
 
     # parse_bench_results()
-    with open('results_out_bench.pkl', 'rb') as results_file:
-        results = pickle.load(results_file)
+    # with open('results_out_bench.pkl', 'rb') as results_file:
+    #     results = pickle.load(results_file)
 
-    print_errored_problems(results)
-    # verify_solutions(results)
+    # print_errored_problems(results)
+    verify_solutions(results)

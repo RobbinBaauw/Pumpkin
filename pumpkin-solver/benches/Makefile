@@ -9,4 +9,4 @@ sync_results_data:
 	rsync -r --stats --progress tu-delftblue:~/pumpkin/experiments ./results
 
 show_errored_files:
-	cd results/3/0 && find -type f -name stderr | xargs ls -lah -S
+	find -type f -name stderr -size +0 | xargs tail -n +1

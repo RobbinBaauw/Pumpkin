@@ -7,7 +7,6 @@ use std::time::Instant;
 
 use clap::ValueEnum;
 use drcp_format::steps::StepId;
-use log::debug;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
@@ -45,7 +44,7 @@ use crate::engine::propagation::PropagationContext;
 use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
-use crate::engine::reason::ReasonStore;
+use crate::engine::reason::{Reason, ReasonStore};
 use crate::engine::variables::DomainId;
 use crate::engine::Assignments;
 use crate::engine::conflict_analysis::ConflictResolveResult::{Constraint, Nogood};
@@ -142,8 +141,6 @@ pub struct ConstraintSatisfactionSolver {
     unit_nogood_step_ids: HashMap<Predicate, StepId>,
     /// The resolver which is used upon a conflict.
     conflict_resolver: Box<dyn Resolver>,
-    /// Prpagations TODO
-    next_propagation: Option<Predicate>,
 }
 
 impl Default for ConstraintSatisfactionSolver {
@@ -422,7 +419,6 @@ impl ConstraintSatisfactionSolver {
                 ConflictResolver::IntSat => Box::new(IntSatConflictResolver::default()),
             },
             internal_parameters: solver_options,
-            next_propagation: None,
         };
 
         // As a convention, the assignments contain a dummy domain_id=0, which represents a 0-1
@@ -841,20 +837,6 @@ impl ConstraintSatisfactionSolver {
                 });
         }
 
-        // Propagate the nogood from the resolution resolver as a decision
-        if let Some(propagation_predicate) = self.next_propagation {
-            self.declare_new_decision_level();
-
-            self
-                .assignments
-                .post_predicate(propagation_predicate, None)
-                .expect("Shouldn't error");
-
-            self.next_propagation = None;
-
-            return Ok(())
-        }
-
         // Otherwise proceed with standard branching.
         let context = &mut SelectionContext::new(
             &self.assignments,
@@ -998,26 +980,22 @@ impl ConstraintSatisfactionSolver {
             Self::get_nogood_propagator_id(),
         );
 
-        if self.internal_parameters.learning_options.skip_nogood_learning {
-            debug!("==>==> Propagating {:?}", !learned_nogood.predicates[0]);
-            self.next_propagation = Some(!learned_nogood.predicates[0]);
-        } else {
-            debug!("==>==> Learning nogood {:?}", learned_nogood.predicates);
-            ConstraintSatisfactionSolver::add_asserting_nogood_to_nogood_propagator(
-                &mut self.propagators[Self::get_nogood_propagator_id()],
-                learned_nogood.predicates,
-                &mut context,
-            )
-        }
+        ConstraintSatisfactionSolver::add_asserting_nogood_to_nogood_propagator(
+            &mut self.propagators[Self::get_nogood_propagator_id()],
+            learned_nogood.predicates,
+            &mut context,
+            self.internal_parameters.learning_options.skip_nogood_learning,
+        )
     }
 
     pub(crate) fn add_asserting_nogood_to_nogood_propagator(
         nogood_propagator: &mut dyn Propagator,
         nogood: Vec<Predicate>,
         context: &mut PropagationContextMut,
+        skip_nogood_learning: bool,
     ) {
         match nogood_propagator.downcast_mut::<NogoodPropagator>() {
-            Some(nogood_propagator) => nogood_propagator.add_asserting_nogood(nogood, context),
+            Some(nogood_propagator) => nogood_propagator.add_asserting_nogood(nogood, context, skip_nogood_learning),
             None => panic!("Provided propagator should be the nogood propagator"),
         }
     }

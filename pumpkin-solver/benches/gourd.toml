@@ -16,22 +16,22 @@ cpus = 1
 mem_per_cpu = 16384
 
 [program]
-[program.resolution]
-binary = "./intsat_benchmarks"
-arguments = ["--time-limit", "3600000"]
-
-#[program.intsat-nolearn]
+#[program.resolution]
 #binary = "./intsat_benchmarks"
-#arguments = ["--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
+#arguments = ["--time-limit", "3600000"]
 
-[program.intsat-learn]
+[program.intsat-nolearn]
 binary = "./intsat_benchmarks"
-arguments = ["--use-intsat", "--time-limit", "3600000"]
+arguments = ["--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
+
+#[program.intsat-learn]
+#binary = "./intsat_benchmarks"
+#arguments = ["--use-intsat", "--time-limit", "3600000"]
 
 [input]
 
-[input.benchmarks]
-arguments = ["path|/scratch/rbaauw/benchmarks-set-small/**/*.fzn"]
+#[input.benchmarks]
+#arguments = ["path|/scratch/rbaauw/benchmarks-set-small/**/*.fzn"]
 
-#[input.examples]
-#arguments = ["path|/scratch/rbaauw/examples-set/**/*.fzn"]
+[input.examples]
+arguments = ["path|/scratch/rbaauw/examples-set/**/*.fzn"]
