@@ -1,6 +1,8 @@
 [submodule "pumpkin-solver/benches/minizinc-benchmarks"]
 	path = pumpkin-solver/benches/minizinc-benchmarks
 	url = git@github.com:MiniZinc/minizinc-benchmarks.git
+	ignore = dirty
 [submodule "pumpkin-solver/benches/minizinc-examples"]
 	path = pumpkin-solver/benches/minizinc-examples
 	url = git@github.com:MiniZinc/minizinc-examples.git
+	ignore = dirty
