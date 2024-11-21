@@ -28,6 +28,9 @@ struct Args {
     #[arg(long = "skip-nogood-learning")]
     skip_nogood_learning: bool,
 
+    #[arg(long = "all-solutions")]
+    all_solutions: bool,
+
     #[arg(long = "verbose")]
     verbose: bool,
 
@@ -105,7 +108,7 @@ fn main() {
         time_limit,
         FlatZincOptions {
             free_search: false,
-            all_solutions: false,
+            all_solutions: args.all_solutions,
             cumulative_options: CumulativeOptions::default(),
         },
     ).expect("Failed to solve");

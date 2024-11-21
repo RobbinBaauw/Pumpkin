@@ -60,6 +60,13 @@ pub fn solve(
     );
 
     let instance = parse_and_compile(&mut solver, instance, options)?;
+    let outputs = instance.outputs.clone();
+
+    solver.with_solution_callback(move |solution_callback_arguments| {
+        if options.all_solutions || instance.objective_function.is_none() {
+            print_solution_from_solver(solution_callback_arguments.solution, &outputs);
+        }
+    });
 
     let mut brancher = if options.free_search {
         // The free search flag is active, we just use the default brancher
@@ -87,7 +94,9 @@ pub fn solve(
                 let optimal_objective_value =
                     optimal_solution.get_integer_value(*objective_function.get_domain());
 
-                print_solution_from_solver(&optimal_solution, &instance.all_variables);
+                if !options.all_solutions {
+                    print_solution_from_solver(&optimal_solution, &instance.outputs)
+                }
                 println!("==========");
 
                 Some(optimal_objective_value)
@@ -96,7 +105,7 @@ pub fn solve(
                 let best_found_objective_value =
                     solution.get_integer_value(*objective_function.get_domain());
 
-                print_solution_from_solver(&solution, &instance.all_variables);
+                print_solution_from_solver(&solution, &instance.outputs);
                 println!("==========");
 
                 Some(best_found_objective_value)
@@ -116,10 +125,7 @@ pub fn solve(
                 solver.get_solution_iterator(&mut brancher, &mut termination);
             loop {
                 match solution_iterator.next_solution() {
-                    IteratedSolution::Solution(solution) => {
-                        print_solution_from_solver(&solution, &instance.all_variables);
-                        println!("==========");
-                    }
+                    IteratedSolution::Solution(_) => {}
                     IteratedSolution::Finished => {
                         println!("==========");
                         break;
@@ -136,7 +142,7 @@ pub fn solve(
         } else {
             match solver.satisfy(&mut brancher, &mut termination) {
                 SatisfactionResult::Satisfiable(solution) => {
-                    print_solution_from_solver(&solution, &instance.all_variables);
+                    print_solution_from_solver(&solution, &instance.outputs);
                     println!("==========");
                 }
                 SatisfactionResult::Unsatisfiable => {

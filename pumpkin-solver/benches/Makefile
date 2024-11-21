@@ -3,7 +3,7 @@ sync_examples_set:
 
 sync_binary_and_config:
 	cp ../../target/x86_64-unknown-linux-musl/release/intsat_benchmarks ./
-	rsync --stats --progress ./intsat_benchmarks ./gourd.toml tu-delftblue:~/pumpkin
+	rsync --stats --progress ./intsat_benchmarks ./intsat_og ./gourd.toml tu-delftblue:~/pumpkin
 
 sync_results_data:
 	rsync -r --stats --progress tu-delftblue:~/pumpkin/experiments ./results

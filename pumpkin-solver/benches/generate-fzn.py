@@ -7,8 +7,10 @@ from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from typing import Optional
 
-BENCH_DIR = Path(__file__).parent / "minizinc-benchmarks"
-BENCH_SET_DIR = Path(__file__).parent / "benchmarks-set"
+BENCH_DIR = Path(__file__).parent / "minizinc-examples"
+BENCH_SET_DIR = Path(__file__).parent / "examples-set"
+
+OUT_EXT = "lp"
 
 PUMPKIN_SOLVER = Path(__file__).parent.parent.parent / "minizinc" / "pumpkin-linear-ineq.msc"
 
@@ -19,7 +21,7 @@ thread_pool = ThreadPool()
 
 def find_fzn_name_path(mzn_path: Path, dzn_path: Optional[Path]):
     if dzn_path is None:
-        fzn_name = f"{mzn_path.stem}.fzn"
+        fzn_name = f"{mzn_path.stem}.{OUT_EXT}"
         fzn_path = mzn_path.parent / fzn_name
     else:
         dzn_name = dzn_path.stem
@@ -30,7 +32,7 @@ def find_fzn_name_path(mzn_path: Path, dzn_path: Optional[Path]):
             dzn_name = f"{dzn_parent_path.stem}_{dzn_name}"
             dzn_parent_path = dzn_parent_path.parent
 
-        fzn_name = f"{mzn_path.stem}_{dzn_name}.fzn"
+        fzn_name = f"{mzn_path.stem}_{dzn_name}.{OUT_EXT}"
         fzn_path = mzn_path.parent / fzn_name
 
     return fzn_name, fzn_path
@@ -44,9 +46,21 @@ def worker_generate(mzn_path: Path, dzn_path: Optional[Path]):
         return
 
     print(f"({multiprocessing.current_process().name}) Generating {fzn_path}")
-    cmd = ["minizinc", "-c", str(mzn_path.resolve()),
-            None if dzn_path is None else str(dzn_path.resolve()), "--solver", str(PUMPKIN_SOLVER.resolve()),
-            "--fzn", str(fzn_path.resolve())]
+
+    match OUT_EXT:
+        case "fzn":
+            cmd = ["minizinc", "-c", str(mzn_path.resolve()),
+                    None if dzn_path is None else str(dzn_path.resolve()), "--solver", str(PUMPKIN_SOLVER.resolve()),
+                    "--fzn", str(fzn_path.resolve())]
+        case "lp":
+            cmd = ["minizinc", "--solver", "cplex",
+                  "--writeModel", str(fzn_path.resolve()),
+                  "--cplex-dll", "/opt/ibm/ILOG/CPLEX_Studio2211/cplex/bin/x86-64_linux/libcplex2211.so",
+                  "--solver-time-limit", "1",
+                  str(mzn_path.resolve()), None if dzn_path is None else str(dzn_path.resolve())]
+        case _:
+            raise RuntimeError("Invalid file format")
+
     cmd = list(filter(lambda c: c is not None, cmd))
 
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -90,7 +104,7 @@ def select_fzn():
 
     for f in BENCH_DIR.iterdir():
         if f.is_dir():
-            mzn_fzn_files.append((f, list(f.rglob("./*.fzn"))))
+            mzn_fzn_files.append((f, list(f.rglob(f"./*.{OUT_EXT}"))))
 
     mzn_fzn_files = list(filter(lambda i: len(i[1]) != 0, mzn_fzn_files))
 

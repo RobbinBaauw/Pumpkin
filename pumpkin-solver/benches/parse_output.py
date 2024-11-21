@@ -60,6 +60,7 @@ class RunResult:
 
     bench_version: str
     fzn_file_name: str
+    fzn_file_path: Path
 
     run_error: Optional[RunError]
     run_data: Optional[RunData]
@@ -121,13 +122,17 @@ def parse_stdout(stdout_path: Path):
 
     file_name_match = re.search("^Executing \"(.+)\"", stdout[1])
     if file_name_match is None: raise RuntimeError(f"Invalid file name in stdout {stdout}")
-    file_name = file_name_match.group(1).split("/")[-1]
+    file_path = Path(file_name_match.group(1))
+    file_name = file_path.stem
 
     # If we only have 2 full lines, we're not done solving
     if len(stdout) <= 2 or len(stdout[2]) == 0:
-        return version, file_name, None
+        return version, file_name, file_path, None
 
     result_line_i = 2
+    if "The Smallest variable selector was not provided with any variables" in stdout[result_line_i]:
+        result_line_i += 1
+
     if "=====UNKNOWN=====" in stdout[result_line_i]:
         result = Result.UNKNOWN
         result_values = None
@@ -189,7 +194,7 @@ def parse_stdout(stdout_path: Path):
                 case "number_of_propagations":
                     linear_leq_id_values[linear_leq_id].num_propagations = value
 
-    return version, file_name, RunData(result,
+    return version, file_name, file_path, RunData(result,
                    result_values,
                    use_intsat,
                    skip_nogood_learning,
@@ -204,6 +209,53 @@ def parse_stdout(stdout_path: Path):
                    dict(linear_leq_id_values))
 
 
+def parse_intsat(stderr_path: Path):
+    with open(stderr_path) as stderr_file:
+        output = stderr_file.read().split("\n")
+
+    file_path = Path(output[1].split(":  ")[1])
+    file_name = file_path.stem
+
+    if "Internal error" in output[2]:
+        return "intsat", file_name, file_path, RunError("??"), None
+
+    for stats_line_i in range(5, len(output)):
+        line = output[stats_line_i]
+
+        if "Decisions:" in line:
+            num_decisions = int(line.split(":")[1].strip())
+
+        if "Conflicts:" in line:
+            num_conflicts = int(line.split(":")[1].strip())
+
+        if "Restarts:" in line:
+            num_restarts = int(line.split(":")[1].strip())
+
+        if "Total learned Constrs" in line:
+            intsat_learned_constraints = int(line.split(":")[1].strip())
+
+        if "Avg. size of learned Ctrs" in line:
+            try:
+                intsat_learned_constraints_avg_length = int(line.split(":")[1].strip())
+            except ValueError:
+                intsat_learned_constraints_avg_length = 0
+
+    return "intsat", file_name, file_path, None, RunData(
+        Result.SUCCESS,
+        None,
+        True,
+        True,
+        num_decisions,
+        num_conflicts,
+        num_restarts,
+        0,
+        intsat_learned_constraints,
+        intsat_learned_constraints_avg_length,
+        0,
+        0,
+        dict()
+    )
+
 def parse_results_dir(results_dir: Path):
     results = []
     for exp_dir in results_dir.iterdir():
@@ -216,9 +268,14 @@ def parse_results_dir(results_dir: Path):
 
             print(f"Parsing {exp_dir}")
             exit_code, wall_time = parse_metrics(exp_dir / "metrics")
-            run_err = parse_stderr(exp_dir / "stderr")
-            version, file_name, run_data = parse_stdout(exp_dir / "stdout")
-            results.append(RunResult(exit_code, wall_time, version, file_name, run_err, run_data))
+
+            if (exp_dir / "intsat.pid.txt").exists():
+                version, file_name, file_path, run_err, run_data = parse_intsat(exp_dir / "stderr")
+                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, run_err, run_data))
+            else:
+                run_err = parse_stderr(exp_dir / "stderr")
+                version, file_name, file_path, run_data = parse_stdout(exp_dir / "stdout")
+                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, run_err, run_data))
 
     return results
 
@@ -262,6 +319,7 @@ def parse_examples_results():
     resolution_results = parse_results_dir(BASE_DIR / "7" / "1")
     intsat_results = parse_results_dir(BASE_DIR / "7" / "0")
     intsat_skip_results = parse_results_dir(BASE_DIR / "8" / "0")
+    intsat_og_results = parse_results_dir(BASE_DIR / "9" / "0")
 
     assert all(map(lambda r: r.run_data is None or (not r.run_data.use_intsat and not r.run_data.skip_nogood_learning), resolution_results))
     assert all(map(lambda r: r.run_data is None or (r.run_data.use_intsat and not r.run_data.skip_nogood_learning), intsat_results))
@@ -269,12 +327,13 @@ def parse_examples_results():
 
     results = {
         prob: {}
-        for prob in problem_names(resolution_results, intsat_skip_results, intsat_results)
+        for prob in problem_names(resolution_results, intsat_skip_results, intsat_results, intsat_og_results)
     }
 
     update_results(results, resolution_results, "resolution")
     update_results(results, intsat_results, "intsat")
     update_results(results, intsat_skip_results, "intsat_skip")
+    update_results(results, intsat_og_results, "intsat_og")
 
     with open('results_out_examples.pkl', 'wb') as results_out:
         pickle.dump(results, results_out, pickle.HIGHEST_PROTOCOL)
@@ -293,41 +352,55 @@ def examples_results_to_table(results: Results):
 
     for prob in results.keys():
         prob_results = results[prob]
-        resolution, intsat, intsat_skip = prob_results.get('resolution'), prob_results.get('intsat'), prob_results.get('intsat_skip')
+        resolution, intsat, intsat_skip, intsat_og = prob_results.get('resolution'), prob_results.get('intsat'), prob_results.get('intsat_skip'), prob_results.get('intsat_og')
 
         if not did_fail(resolution):
+            res_time = round(resolution.wall_time, 2)
             res_conflicts = resolution.run_data.num_conflicts
         else:
-            res_conflicts = None
+            res_time = res_conflicts = None
 
         if not did_fail(intsat_skip):
+            intsat_skip_time = round(intsat_skip.wall_time, 2)
             intsat_skip_conflicts = intsat_skip.run_data.num_conflicts
             intsat_skip_constraints = intsat_skip.run_data.intsat_learned_constraints
             intsat_skip_fallbacks = intsat_skip.run_data.intsat_fallback_used
             intsat_skip_learned_propagations = sum(map(lambda leq: leq.num_propagations, intsat_skip.run_data.linear_leqs.values()))
         else:
-            intsat_skip_conflicts = intsat_skip_constraints = intsat_skip_fallbacks = intsat_skip_learned_propagations = None
+            intsat_skip_time = intsat_skip_conflicts = intsat_skip_constraints = intsat_skip_fallbacks = intsat_skip_learned_propagations = None
 
         if not did_fail(intsat):
+            intsat_time = round(intsat.wall_time, 2)
             intsat_conflicts = intsat.run_data.num_conflicts
             intsat_constraints = intsat.run_data.intsat_learned_constraints
             intsat_fallbacks = intsat.run_data.intsat_fallback_used
             intsat_learned_propagations = sum(map(lambda leq: leq.num_propagations, intsat.run_data.linear_leqs.values()))
         else:
-            intsat_conflicts = intsat_constraints = intsat_fallbacks = intsat_learned_propagations = None
+            intsat_time = intsat_conflicts = intsat_constraints = intsat_fallbacks = intsat_learned_propagations = None
 
-        if did_fail(resolution) and did_fail(intsat_skip) and did_fail(intsat):
+        if not did_fail(intsat_og):
+            intsat_og_time = round(intsat_og.wall_time, 2)
+            intsat_og_conflicts = intsat_og.run_data.num_conflicts
+            intsat_og_constraints = intsat_og.run_data.intsat_learned_constraints
+        else:
+            intsat_og_time = intsat_og_conflicts = intsat_og_constraints = None
+
+        if did_fail(resolution) and did_fail(intsat_skip) and did_fail(intsat) and did_fail(intsat_og):
             continue
 
-        conf_values = [res_conflicts, intsat_skip_conflicts, intsat_conflicts]
+        conf_values = [res_conflicts, intsat_skip_conflicts, intsat_conflicts, intsat_og_conflicts]
         conf_values = list(filter(lambda x: x is not None, conf_values))
 
         best_conf = min(conf_values)
         all_conf_same = len(conf_values) > 1 and all(x == conf_values[0] for x in conf_values)
 
-        table.append([prob, (f"{res_conflicts if res_conflicts is not None else '-'} ({resolution.short_result() if resolution is not None else '-'})", res_conflicts == best_conf and not all_conf_same),
-                      (f"{intsat_conflicts if intsat_conflicts is not None else '-'} ({intsat.short_result() if intsat is not None else '-'})", intsat_conflicts == best_conf and not all_conf_same), intsat_constraints, intsat_fallbacks, intsat_learned_propagations,
-                      (f"{intsat_skip_conflicts if intsat_skip_conflicts is not None else '-'} ({intsat_skip.short_result() if intsat_skip_conflicts is not None else '-'})", intsat_skip_conflicts == best_conf and not all_conf_same), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations])
+        table.append([
+            prob,
+            res_time, (f"{res_conflicts if res_conflicts is not None else '-'} ({resolution.short_result() if resolution is not None else '-'})", res_conflicts == best_conf and not all_conf_same),
+            intsat_time, (f"{intsat_conflicts if intsat_conflicts is not None else '-'} ({intsat.short_result() if intsat is not None else '-'})", intsat_conflicts == best_conf and not all_conf_same), intsat_constraints, intsat_fallbacks, intsat_learned_propagations,
+            intsat_skip_time, (f"{intsat_skip_conflicts if intsat_skip_conflicts is not None else '-'} ({intsat_skip.short_result() if intsat_skip_conflicts is not None else '-'})", intsat_skip_conflicts == best_conf and not all_conf_same), intsat_skip_constraints, intsat_skip_fallbacks, intsat_skip_learned_propagations,
+            intsat_og_time, (f"{intsat_og_conflicts if intsat_og_conflicts is not None else '-'} ({intsat_og.short_result() if intsat_og is not None else '-'})", intsat_og_conflicts == best_conf and not all_conf_same), intsat_og_constraints
+        ])
 
     return sorted(table, key=lambda r: r[0])
 
@@ -342,9 +415,10 @@ def table_to_latex(table):
 
     headers = {
         "": ["Problem"],
-        "Resolution": ["\# conf"],
-        "IntSat": ["\# conf", "\# lear constr", "\# fallb", "\# learn prop"],
-        "IntSat skip nogood learning": ["\# conf", "\# lear constr", "\# fallb", "\# learn prop"],
+        "Resolution": ["time", "\# conf"],
+        "IntSat": ["time", "\# conf", "\# lear constr", "\# fallb", "\# learn prop"],
+        "IntSat skip nogood learning": ["time", "\# conf", "\# lear constr", "\# fallb", "\# learn prop"],
+        "IntSat OG": ["time", "\# conf", "\# lear constr"],
     }
     rendered = template.render({
         "headers": headers,
@@ -387,10 +461,7 @@ def verify_solution(result: RunResult):
         print(f"Not verifying solution {result.fzn_file_name} with empty result {result.run_data.result_values}")
         return
 
-    bench_dir_names = list(map(lambda f: f.name, filter(lambda f: f.is_dir(), BENCH_DIR.iterdir())))
-
-    result_dir_name = next((dir_name for dir_name in bench_dir_names if result.fzn_file_name.startswith(dir_name)))
-    fzn_path = BENCH_DIR / result_dir_name / result.fzn_file_name
+    fzn_path = BENCH_DIR / result.fzn_file_path.parent.name / result.fzn_file_name
 
     cmd = ["minizinc", str(fzn_path), "-D", f"\"{result.run_data.result_values}\""]
     res = str(subprocess.check_output(" ".join(cmd), shell=True))
@@ -410,7 +481,7 @@ def verify_solutions(results: Results):
 
 
 if __name__ == "__main__":
-    parse_examples_results()
+    # parse_examples_results()
     with open('results_out_examples.pkl', 'rb') as results_file:
         results = pickle.load(results_file)
     table = examples_results_to_table(results)
@@ -421,4 +492,4 @@ if __name__ == "__main__":
     #     results = pickle.load(results_file)
 
     # print_errored_problems(results)
-    verify_solutions(results)
+    # verify_solutions(results)
