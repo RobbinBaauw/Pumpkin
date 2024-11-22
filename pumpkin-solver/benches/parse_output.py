@@ -21,20 +21,8 @@ class LinearLeq:
     num_propagations: int
 
 
-class Result(Enum):
-    UNSAT = "unsat"
-    UNKNOWN = "unknown"
-    SUCCESS = "success"
-
-
 @dataclass
-class RunData:
-    result: Result
-    result_values: Optional[str]
-
-    use_intsat: bool
-    skip_nogood_learning: bool
-
+class Stats:
     num_decisions: int
     num_conflicts: int
     num_restarts: int
@@ -48,9 +36,25 @@ class RunData:
     linear_leqs: Dict[int, LinearLeq]
 
 
+class Result(Enum):
+    UNSAT = "unsat"
+    UNKNOWN = "unknown"
+    SUCCESS = "success"
+
+
 @dataclass
-class RunError:
-    stderr: str
+class Outputs:
+    result: Result
+    outputs: Optional[List[List[str]]]
+
+
+@dataclass
+class RunData:
+    use_intsat: bool
+    skip_nogood_learning: bool
+
+    stats: Stats
+    outputs: Outputs
 
 
 @dataclass
@@ -58,27 +62,29 @@ class RunResult:
     exit_code: int
     wall_time: int
 
-    bench_version: str
+    bench_version: int
     fzn_file_name: str
     fzn_file_path: Path
 
-    run_error: Optional[RunError]
+    stderr: Optional[str]
+    stdout: Optional[str]
+
     run_data: Optional[RunData]
 
     def short_result(self):
-        if self.run_error is not None:
+        if self.stderr is not None:
             return "E"
 
         if self.run_data is None:
             return "?"
 
-        if self.wall_time > 3600 or self.run_data.result == Result.UNKNOWN:
+        if self.wall_time > 3600 or self.run_data.outputs.result == Result.UNKNOWN:
             return "T"
 
-        if self.run_data.result == Result.SUCCESS:
+        if self.run_data.outputs.result == Result.SUCCESS:
             return "S"
 
-        if self.run_data.result == Result.UNSAT:
+        if self.run_data.outputs.result == Result.UNSAT:
             return "U"
 
 
@@ -94,75 +100,48 @@ def parse_metrics(metrics_path: Path):
     return exit_code, wall_time
 
 
+def parse_run_info(info_path: Path):
+    with open(info_path) as info_file:
+        info_lines = info_file.read().split("\n")
+
+    version = int(info_lines[0].split(": ")[1])
+
+    file_path = Path(info_lines[1].split(": ")[1])
+    file_name = file_path.stem
+
+    return version, file_path, file_name
+
+
 def parse_stderr(stderr_path: Path):
     with open(stderr_path) as stderr_file:
         stderr = stderr_file.read()
 
-    return RunError(stderr) if len(stderr) > 0 else None
-
-
-def parse_stat_line(stat_line: str):
-    stat_res = re.search("^\$stat\$-I(.+)-SL(.+) (.+)=(.+)$", stat_line)
-    if stat_res is None:
-        raise RuntimeError(f"Cannot parse line {stat_line}")
-
-    return json.loads(stat_res.group(1)), json.loads(stat_res.group(2)), stat_res.group(3), json.loads(stat_res.group(4))
+    return stderr if len(stderr) > 0 else None
 
 
 def parse_stdout(stdout_path: Path):
     with open(stdout_path) as stdout_file:
-        stdout = stdout_file.read().split("\n")
+        stdout = stdout_file.read()
 
-    # First version of experiments still had the arguments logged
-    if stdout[0].startswith("--"):
-        stdout = stdout[1:]
+    return stdout if len(stdout) > 0 else None
 
-    version = stdout[0]
-    if not version.startswith('V'): raise RuntimeError(f"Invalid version in stdout {stdout}")
 
-    file_name_match = re.search("^Executing \"(.+)\"", stdout[1])
-    if file_name_match is None: raise RuntimeError(f"Invalid file name in stdout {stdout}")
-    file_path = Path(file_name_match.group(1))
-    file_name = file_path.stem
+def parse_stat_file(stat_path: Path):
+    with open(stat_path) as stat_file:
+        stats_lines = stat_file.read().split("\n")
 
-    # If we only have 2 full lines, we're not done solving
-    if len(stdout) <= 2 or len(stdout[2]) == 0:
-        return version, file_name, file_path, None
+    def parse_stat_line(stat_line: str):
+        stat_res = re.search("^\$stat\$-I(.+)-SL(.+) (.+)=(.+)$", stat_line)
+        if stat_res is None:
+            raise RuntimeError(f"Cannot parse line {stat_line}")
 
-    result_line_i = 2
-    if "The Smallest variable selector was not provided with any variables" in stdout[result_line_i]:
-        result_line_i += 1
+        return json.loads(stat_res.group(1)), json.loads(stat_res.group(2)), stat_res.group(3), json.loads(stat_res.group(4))
 
-    if "=====UNKNOWN=====" in stdout[result_line_i]:
-        result = Result.UNKNOWN
-        result_values = None
-    elif "=====UNSATISFIABLE=====" in stdout[result_line_i]:
-        result = Result.UNSAT
-        result_values = None
-    else:
-        result = Result.SUCCESS
-
-        if stdout[result_line_i].startswith("$stat$"):
-            result_values = None
-        else:
-            result_lines = []
-            while "----------" not in stdout[result_line_i]:
-                result_lines.append(stdout[result_line_i])
-                result_line_i += 1
-
-            result_values = "\n".join(result_lines)
-
-    # Not sure where that comes from
-    if "==========" in stdout[result_line_i + 1]:
-        result_line_i += 1
-
-    use_intsat, skip_nogood_learning, _, _ = parse_stat_line(stdout[result_line_i + 1])
+    use_intsat, skip_nogood_learning, _, _ = parse_stat_line(stats_lines[0])
 
     linear_leq_id_values = defaultdict(lambda: LinearLeq(0, 0))
-    for line_i in range(result_line_i + 1, len(stdout)):
-        line_val = stdout[line_i]
-        if len(line_val) == 0:
-            continue
+    for line_i in range(0, len(stats_lines)):
+        line_val = stats_lines[line_i]
 
         _, _, stat, value = parse_stat_line(line_val)
 
@@ -194,19 +173,43 @@ def parse_stdout(stdout_path: Path):
                 case "number_of_propagations":
                     linear_leq_id_values[linear_leq_id].num_propagations = value
 
-    return version, file_name, file_path, RunData(result,
-                   result_values,
-                   use_intsat,
-                   skip_nogood_learning,
-                   num_decisions,
-                   num_conflicts,
-                   num_restarts,
-                   num_propagations,
-                   intsat_learned_constraints,
-                   intsat_learned_constraints_avg_length,
-                   intsat_learned_constraints_avg_coeff,
-                   intsat_fallback_used,
-                   dict(linear_leq_id_values))
+    return use_intsat, skip_nogood_learning, Stats(
+        num_decisions,
+        num_conflicts,
+        num_restarts,
+        num_propagations,
+        intsat_learned_constraints,
+        intsat_learned_constraints_avg_length,
+        intsat_learned_constraints_avg_coeff,
+        intsat_fallback_used,
+        dict(linear_leq_id_values)
+   )
+
+
+def parse_outputs(outputs_path: Path):
+    with open(outputs_path) as outputs_file:
+        outputs_lines = outputs_file.read().split("\n")
+
+    if "=====UNKNOWN=====" in outputs_lines[0]:
+        result = Result.UNKNOWN
+        outputs = None
+    elif "=====UNSATISFIABLE=====" in outputs_lines[0]:
+        result = Result.UNSAT
+        outputs = None
+    else:
+        result = Result.SUCCESS
+
+        outputs = [[]]
+
+        outputs_line_i = 0
+        while "==========" not in outputs_lines[outputs_line_i]:
+            if "----------" in outputs_lines[outputs_line_i]:
+                outputs.append([])
+
+            outputs[-1].append(outputs_lines[outputs_line_i])
+            outputs_line_i += 1
+
+    return Outputs(result, outputs)
 
 
 def parse_intsat(stderr_path: Path):
@@ -217,7 +220,7 @@ def parse_intsat(stderr_path: Path):
     file_name = file_path.stem
 
     if "Internal error" in output[2]:
-        return "intsat", file_name, file_path, RunError("??"), None
+        return "intsat", file_name, file_path, "??", None
 
     for stats_line_i in range(5, len(output)):
         line = output[stats_line_i]
@@ -240,21 +243,23 @@ def parse_intsat(stderr_path: Path):
             except ValueError:
                 intsat_learned_constraints_avg_length = 0
 
-    return "intsat", file_name, file_path, None, RunData(
-        Result.SUCCESS,
-        None,
+    return "intsat", file_name, file_path, None, None, RunData(
         True,
         True,
-        num_decisions,
-        num_conflicts,
-        num_restarts,
-        0,
-        intsat_learned_constraints,
-        intsat_learned_constraints_avg_length,
-        0,
-        0,
-        dict()
+        Stats(
+            num_decisions,
+            num_conflicts,
+            num_restarts,
+            0,
+            intsat_learned_constraints,
+            intsat_learned_constraints_avg_length,
+            0,
+            0,
+            dict()
+        ),
+        Outputs(Result.SUCCESS, None)
     )
+
 
 def parse_results_dir(results_dir: Path):
     results = []
@@ -270,12 +275,21 @@ def parse_results_dir(results_dir: Path):
             exit_code, wall_time = parse_metrics(exp_dir / "metrics")
 
             if (exp_dir / "intsat.pid.txt").exists():
-                version, file_name, file_path, run_err, run_data = parse_intsat(exp_dir / "stderr")
-                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, run_err, run_data))
+                version, file_name, file_path, stderr, stdout, run_data = parse_intsat(exp_dir / "stderr")
+                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, stderr, stdout, run_data))
             else:
-                run_err = parse_stderr(exp_dir / "stderr")
-                version, file_name, file_path, run_data = parse_stdout(exp_dir / "stdout")
-                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, run_err, run_data))
+                stderr = parse_stderr(exp_dir / "stderr")
+                stdout = parse_stdout(exp_dir / "stdout")
+                use_intsat, skip_nogood_learning, stats = parse_stat_file(exp_dir / "run_stats")
+                version, file_path, file_name = parse_run_info(exp_dir / "run_info")
+                outputs = parse_outputs(exp_dir / "run_outputs")
+
+                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, stderr, stdout, RunData(
+                    use_intsat,
+                    skip_nogood_learning,
+                    stats,
+                    outputs,
+                )))
 
     return results
 
@@ -344,7 +358,7 @@ def did_fail(res: Optional[RunResult]):
             (res.exit_code != 0) or
             (res.wall_time > 3600) or
             (res.run_data is None) or
-            (res.run_data.result == Result.UNKNOWN))
+            (res.run_data.outputs.result == Result.UNKNOWN))
 
 
 def examples_results_to_table(results: Results):
@@ -356,32 +370,32 @@ def examples_results_to_table(results: Results):
 
         if not did_fail(resolution):
             res_time = round(resolution.wall_time, 2)
-            res_conflicts = resolution.run_data.num_conflicts
+            res_conflicts = resolution.run_data.stats.num_conflicts
         else:
             res_time = res_conflicts = None
 
         if not did_fail(intsat_skip):
             intsat_skip_time = round(intsat_skip.wall_time, 2)
-            intsat_skip_conflicts = intsat_skip.run_data.num_conflicts
-            intsat_skip_constraints = intsat_skip.run_data.intsat_learned_constraints
-            intsat_skip_fallbacks = intsat_skip.run_data.intsat_fallback_used
-            intsat_skip_learned_propagations = sum(map(lambda leq: leq.num_propagations, intsat_skip.run_data.linear_leqs.values()))
+            intsat_skip_conflicts = intsat_skip.run_data.stats.num_conflicts
+            intsat_skip_constraints = intsat_skip.run_data.stats.intsat_learned_constraints
+            intsat_skip_fallbacks = intsat_skip.run_data.stats.intsat_fallback_used
+            intsat_skip_learned_propagations = sum(map(lambda leq: leq.num_propagations, intsat_skip.run_data.stats.linear_leqs.values()))
         else:
             intsat_skip_time = intsat_skip_conflicts = intsat_skip_constraints = intsat_skip_fallbacks = intsat_skip_learned_propagations = None
 
         if not did_fail(intsat):
             intsat_time = round(intsat.wall_time, 2)
-            intsat_conflicts = intsat.run_data.num_conflicts
-            intsat_constraints = intsat.run_data.intsat_learned_constraints
-            intsat_fallbacks = intsat.run_data.intsat_fallback_used
-            intsat_learned_propagations = sum(map(lambda leq: leq.num_propagations, intsat.run_data.linear_leqs.values()))
+            intsat_conflicts = intsat.run_data.stats.num_conflicts
+            intsat_constraints = intsat.run_data.stats.intsat_learned_constraints
+            intsat_fallbacks = intsat.run_data.stats.intsat_fallback_used
+            intsat_learned_propagations = sum(map(lambda leq: leq.num_propagations, intsat.run_data.stats.linear_leqs.values()))
         else:
             intsat_time = intsat_conflicts = intsat_constraints = intsat_fallbacks = intsat_learned_propagations = None
 
         if not did_fail(intsat_og):
             intsat_og_time = round(intsat_og.wall_time, 2)
-            intsat_og_conflicts = intsat_og.run_data.num_conflicts
-            intsat_og_constraints = intsat_og.run_data.intsat_learned_constraints
+            intsat_og_conflicts = intsat_og.run_data.stats.num_conflicts
+            intsat_og_constraints = intsat_og.run_data.stats.intsat_learned_constraints
         else:
             intsat_og_time = intsat_og_conflicts = intsat_og_constraints = None
 
@@ -449,21 +463,22 @@ def print_errored_problems(results: Results):
 
 
 def verify_solution(result: RunResult):
-    if (result.run_error is not None) or (result.run_data is None):
+    if (result.stderr is not None) or (result.run_data is None):
         print(f"Not verifying solution {result.fzn_file_name} with error")
         return
 
-    if result.run_data.result is not Result.SUCCESS:
-        print(f"Not verifying solution {result.fzn_file_name} with result {result.run_data.result}")
+    if result.run_data.outputs.result is not Result.SUCCESS:
+        print(f"Not verifying solution {result.fzn_file_name} with result {result.run_data.outputs.result}")
         return
 
-    if result.run_data.result_values is None:
-        print(f"Not verifying solution {result.fzn_file_name} with empty result {result.run_data.result_values}")
+    if result.run_data.outputs.outputs is None:
+        print(f"Not verifying solution {result.fzn_file_name} with empty result {result.run_data.outputs.outputs}")
         return
 
     fzn_path = BENCH_DIR / result.fzn_file_path.parent.name / result.fzn_file_name
 
-    cmd = ["minizinc", str(fzn_path), "-D", f"\"{result.run_data.result_values}\""]
+    # TODO FIX
+    cmd = ["minizinc", str(fzn_path), "-D", f"\"{result.run_data.outputs.outputs}\""]
     res = str(subprocess.check_output(" ".join(cmd), shell=True))
 
     if (("==UNSATISFIABLE==" in res) or

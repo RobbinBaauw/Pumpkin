@@ -9,6 +9,7 @@ use crate::engine::Assignments;
 use crate::engine::EmptyDomain;
 use crate::engine::IntDomainEvent;
 use crate::engine::Watchers;
+use crate::variables::DomainId;
 
 /// A trait specifying the required behaviour of an integer variable such as retrieving a
 /// lower-bound ([`IntegerVariable::lower_bound`]) or adjusting the bounds
@@ -80,4 +81,5 @@ pub trait IntegerVariable:
 
     // TODO
     fn flatten(&self) -> FlattenedVariable;
+    fn get_domain_id(&self) -> DomainId;
 }

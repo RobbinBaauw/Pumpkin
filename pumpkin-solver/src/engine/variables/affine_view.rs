@@ -224,6 +224,10 @@ where
         let FlattenedVariable { id, scale, offset } = self.inner.flatten();
         FlattenedVariable::new(id, scale * self.scale, offset * self.scale + self.offset)
     }
+
+    fn get_domain_id(&self) -> DomainId {
+        self.inner.get_domain_id()
+    }
 }
 
 impl<View> TransformableVariable<AffineView<View>> for AffineView<View>

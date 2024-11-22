@@ -116,6 +116,10 @@ impl IntegerVariable for DomainId {
     fn flatten(&self) -> FlattenedVariable {
         FlattenedVariable::new(*self, 1, 0)
     }
+
+    fn get_domain_id(&self) -> DomainId {
+        *self
+    }
 }
 
 impl TransformableVariable<AffineView<DomainId>> for DomainId {

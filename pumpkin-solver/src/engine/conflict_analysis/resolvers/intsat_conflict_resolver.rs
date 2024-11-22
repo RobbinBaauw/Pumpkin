@@ -17,7 +17,7 @@ use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
-use crate::pumpkin_assert_ne_simple;
+use crate::{pumpkin_assert_advanced, pumpkin_assert_ne_simple};
 use crate::pumpkin_assert_simple;
 use crate::variables::DomainId;
 
@@ -265,12 +265,20 @@ impl ConflictResolver for IntSatConflictResolver {
                 trail_entry.predicate.get_domain()
             );
 
-            // Note to self: it's not required to check whether we need to invert when only dealing
-            // with linear inequalities You can only get a conflict if the propagation
-            // is made for the same variable with a different sign If it "helps" the
-            // other constraint increase its slack, it will never cause a conflict
+            // Because a lineq propagator propagates multiple upper bounds at the same time, the
+            // last one might not be the one actually causing the conflict. The one that caused
+            // the conflict should have a different sign. We search until we find that one.
+            let cutting_var = trail_entry.predicate.get_domain();
+            let c1_scale = conflicting_constraint.find_variable_scale(cutting_var).unwrap();
+            let c2_scale = prop_constraint_expl.find_variable_scale(cutting_var).unwrap();
+
+            if c1_scale.is_positive() == c2_scale.is_positive() {
+                debug!("==> Not different signs, retry");
+                continue;
+            }
+
             let (new_conflicting_constraint, skip_early_backjump) = match Self::apply_cut(
-                trail_entry.predicate.get_domain(),
+                cutting_var,
                 &conflicting_constraint,
                 &prop_constraint_expl,
             ) {

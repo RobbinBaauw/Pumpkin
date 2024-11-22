@@ -162,6 +162,10 @@ impl IntegerVariable for Literal {
     fn flatten(&self) -> FlattenedVariable {
         self.integer_variable.flatten()
     }
+
+    fn get_domain_id(&self) -> DomainId {
+        self.integer_variable.get_domain_id()
+    }
 }
 
 impl PredicateConstructor for Literal {
