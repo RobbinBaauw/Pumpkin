@@ -6,7 +6,9 @@ mod parser;
 
 use std::fs::File;
 use std::io::Read;
+use std::io::Write;
 use std::path::Path;
+use std::sync::RwLock;
 use std::time::Duration;
 
 use pumpkin_solver::branching::branchers::alternating_brancher::AlternatingBrancher;
@@ -51,8 +53,11 @@ pub fn solve(
     instance: impl AsRef<Path>,
     time_limit: Option<Duration>,
     options: FlatZincOptions,
+    output_writer: &'static RwLock<Box<dyn Write + Send + Sync>>,
 ) -> Result<(), FlatZincError> {
     let instance = File::open(instance)?;
+
+    let unlock_writer = || output_writer.write().unwrap();
 
     let mut termination = Combinator::new(
         OsSignal::install(),
@@ -63,8 +68,12 @@ pub fn solve(
     let outputs = instance.outputs.clone();
 
     solver.with_solution_callback(move |solution_callback_arguments| {
-        if options.all_solutions || instance.objective_function.is_none() {
-            print_solution_from_solver(solution_callback_arguments.solution, &outputs);
+        if options.all_solutions {
+            print_solution_from_solver(
+                solution_callback_arguments.solution,
+                &outputs,
+                &mut unlock_writer(),
+            );
         }
     });
 
@@ -95,9 +104,13 @@ pub fn solve(
                     optimal_solution.get_integer_value(*objective_function.get_domain());
 
                 if !options.all_solutions {
-                    print_solution_from_solver(&optimal_solution, &instance.outputs)
+                    print_solution_from_solver(
+                        &optimal_solution,
+                        &instance.outputs,
+                        &mut unlock_writer(),
+                    )
                 }
-                println!("==========");
+                writeln!(&mut unlock_writer(), "==========")?;
 
                 Some(optimal_objective_value)
             }
@@ -105,17 +118,17 @@ pub fn solve(
                 let best_found_objective_value =
                     solution.get_integer_value(*objective_function.get_domain());
 
-                print_solution_from_solver(&solution, &instance.outputs);
-                println!("==========");
+                print_solution_from_solver(&solution, &instance.outputs, &mut unlock_writer());
+                writeln!(&mut unlock_writer(), "==========")?;
 
                 Some(best_found_objective_value)
             }
             OptimisationResult::Unsatisfiable => {
-                println!("{MSG_UNSATISFIABLE}");
+                writeln!(&mut unlock_writer(), "{MSG_UNSATISFIABLE}")?;
                 None
             }
             OptimisationResult::Unknown => {
-                println!("{MSG_UNKNOWN}");
+                writeln!(&mut unlock_writer(), "{MSG_UNKNOWN}")?;
                 None
             }
         }
@@ -127,14 +140,14 @@ pub fn solve(
                 match solution_iterator.next_solution() {
                     IteratedSolution::Solution(_) => {}
                     IteratedSolution::Finished => {
-                        println!("==========");
+                        writeln!(&mut unlock_writer(), "==========")?;
                         break;
                     }
                     IteratedSolution::Unknown => {
                         break;
                     }
                     IteratedSolution::Unsatisfiable => {
-                        println!("{MSG_UNSATISFIABLE}");
+                        writeln!(&mut unlock_writer(), "{MSG_UNSATISFIABLE}")?;
                         break;
                     }
                 }
@@ -142,14 +155,14 @@ pub fn solve(
         } else {
             match solver.satisfy(&mut brancher, &mut termination) {
                 SatisfactionResult::Satisfiable(solution) => {
-                    print_solution_from_solver(&solution, &instance.outputs);
-                    println!("==========");
+                    print_solution_from_solver(&solution, &instance.outputs, &mut unlock_writer());
+                    writeln!(&mut unlock_writer(), "==========")?;
                 }
                 SatisfactionResult::Unsatisfiable => {
-                    println!("{MSG_UNSATISFIABLE}");
+                    writeln!(&mut unlock_writer(), "{MSG_UNSATISFIABLE}")?;
                 }
                 SatisfactionResult::Unknown => {
-                    println!("{MSG_UNKNOWN}");
+                    writeln!(&mut unlock_writer(), "{MSG_UNKNOWN}")?;
                 }
             }
         }
@@ -176,28 +189,36 @@ fn parse_and_compile(
 }
 
 /// Prints the current solution.
-fn print_solution_from_solver(solution: &Solution, outputs: &[Output]) {
+fn print_solution_from_solver(
+    solution: &Solution,
+    outputs: &[Output],
+    output_writer: &mut Box<dyn Write + Send + Sync>,
+) {
     for output_specification in outputs {
         match output_specification {
-            Output::Bool(output) => {
-                output.print_value(|literal| solution.get_literal_value(*literal))
-            }
+            Output::Bool(output) => output.print_value(
+                |literal| solution.get_literal_value(*literal),
+                output_writer,
+            ),
 
-            Output::Int(output) => {
-                output.print_value(|domain_id| solution.get_integer_value(*domain_id))
-            }
+            Output::Int(output) => output.print_value(
+                |domain_id| solution.get_integer_value(*domain_id),
+                output_writer,
+            ),
 
-            Output::ArrayOfBool(output) => {
-                output.print_value(|literal| solution.get_literal_value(*literal))
-            }
+            Output::ArrayOfBool(output) => output.print_value(
+                |literal| solution.get_literal_value(*literal),
+                output_writer,
+            ),
 
-            Output::ArrayOfInt(output) => {
-                output.print_value(|domain_id| solution.get_integer_value(*domain_id))
-            }
+            Output::ArrayOfInt(output) => output.print_value(
+                |domain_id| solution.get_integer_value(*domain_id),
+                output_writer,
+            ),
         }
     }
 
-    println!("----------");
+    writeln!(output_writer, "----------").expect("Cannot write to writer");
 }
 
 #[cfg(test)]

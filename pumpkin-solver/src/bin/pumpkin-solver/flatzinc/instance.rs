@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::fmt::Write;
+use std::io::Write as IOWrite;
 use std::rc::Rc;
 
 use pumpkin_solver::branching::branchers::dynamic_brancher::DynamicBrancher;
@@ -94,8 +95,13 @@ pub(crate) struct VariableOutput<T> {
 }
 
 impl<T> VariableOutput<T> {
-    pub(crate) fn print_value<V: Display>(&self, value: impl FnOnce(&T) -> V) {
-        println!("{} = {};", self.id, value(&self.variable));
+    pub(crate) fn print_value<V: Display>(
+        &self,
+        value: impl FnOnce(&T) -> V,
+        output_writer: &mut Box<dyn IOWrite + Send + Sync>,
+    ) {
+        writeln!(output_writer, "{} = {};", self.id, value(&self.variable))
+            .expect("Writing to output failed");
     }
 }
 
@@ -112,7 +118,11 @@ pub(crate) struct ArrayOutput<T> {
 }
 
 impl<T> ArrayOutput<T> {
-    pub(crate) fn print_value<V: Display>(&self, value: impl Fn(&T) -> V) {
+    pub(crate) fn print_value<V: Display>(
+        &self,
+        value: impl Fn(&T) -> V,
+        output_writer: &mut Box<dyn IOWrite + Send + Sync>,
+    ) {
         let mut array_buf = String::new();
 
         for element in self.contents.iter() {
@@ -131,9 +141,11 @@ impl<T> ArrayOutput<T> {
         }
 
         let num_dimensions = self.shape.len();
-        println!(
+        writeln!(
+            output_writer,
             "{} = array{num_dimensions}d({shape_buf}[{array_buf}]);",
             self.id
-        );
+        )
+        .expect("Writing to output failed");
     }
 }

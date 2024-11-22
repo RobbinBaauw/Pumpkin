@@ -1,8 +1,12 @@
+use std::error::Error;
+use std::fs::OpenOptions;
+use std::io::stdout;
 use std::io::Write;
 mod flatzinc;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::sync::RwLock;
 use std::time::Duration;
 
 use clap::Parser;
@@ -40,20 +44,62 @@ struct Args {
     #[arg(long = "verbose")]
     verbose: bool,
 
+    #[arg(long = "log-to-files")]
+    log_to_files: bool,
+
     #[arg(long = "time-limit")]
     time_limit: Option<u64>,
 }
 
-fn configure_logging_minizinc(
-    stat_header: &'static str,
-    verbose: bool,
-    log_statistics: bool,
-) -> std::io::Result<()> {
-    if log_statistics {
-        configure_statistic_logging(stat_header, None, None, None);
-    }
+static STAT_HEADER: OnceLock<String> = OnceLock::new();
 
-    let level_filter = if verbose {
+fn open_file_for_append(name: &str) -> Box<dyn Write + Send + Sync> {
+    let f = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(name)
+        .expect("Cannot open file");
+
+    Box::new(f)
+}
+
+static OUTPUT_LOGGER: OnceLock<RwLock<Box<dyn Write + Send + Sync>>> = OnceLock::new();
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+
+    let mut general_logger = if args.log_to_files {
+        open_file_for_append("run_info")
+    } else {
+        Box::new(stdout())
+    };
+    let stats_logger = if args.log_to_files {
+        open_file_for_append("run_info")
+    } else {
+        Box::new(stdout())
+    };
+    let output_logger = OUTPUT_LOGGER.get_or_init(|| {
+        RwLock::from(if args.log_to_files {
+            open_file_for_append("run_outputs")
+        } else {
+            Box::new(stdout())
+        })
+    });
+
+    writeln!(&mut general_logger, "Version: 5")?;
+    writeln!(&mut general_logger, "File: {:?}", args.instance_path)?;
+
+    let stat_header = STAT_HEADER.get_or_init(|| {
+        format!(
+            "$stat$-I{:?}-SL{:?}",
+            args.use_intsat, args.skip_nogood_learning
+        )
+    });
+
+    // Configure logging
+    configure_statistic_logging(stat_header, None, None, Some(stats_logger));
+
+    let level_filter = if args.verbose {
         LevelFilter::Debug
     } else {
         LevelFilter::Warn
@@ -64,26 +110,6 @@ fn configure_logging_minizinc(
         .filter_level(level_filter)
         .target(env_logger::Target::Stdout)
         .init();
-
-    Ok(())
-}
-
-static STAT_HEADER: OnceLock<String> = OnceLock::new();
-
-fn main() {
-    println!("V5");
-
-    let args = Args::parse();
-
-    println!("Executing {:?}", args.instance_path);
-
-    let stat_header = STAT_HEADER.get_or_init(|| {
-        format!(
-            "$stat$-I{:?}-SL{:?}",
-            args.use_intsat, args.skip_nogood_learning
-        )
-    });
-    let _ = configure_logging_minizinc(stat_header, args.verbose, true);
 
     if pumpkin_solver::asserts::PUMPKIN_ASSERT_LEVEL_DEFINITION
         >= pumpkin_solver::asserts::PUMPKIN_ASSERT_MODERATE
@@ -116,6 +142,8 @@ fn main() {
             all_solutions: args.all_solutions,
             cumulative_options: CumulativeOptions::default(),
         },
-    )
-    .expect("Failed to solve");
+        output_logger,
+    )?;
+
+    Ok(())
 }

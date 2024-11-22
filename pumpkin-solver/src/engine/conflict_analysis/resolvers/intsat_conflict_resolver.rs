@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use log::debug;
 
-use crate::basic_types::moving_averages::{CumulativeMovingAverage, MovingAverage};
+use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::StoredConflictInfo;
 use crate::engine::conflict_analysis::ConflictAnalysisContext;
 use crate::engine::conflict_analysis::ConflictResolveResult;
@@ -524,34 +524,26 @@ mod tests {
     }
 
     #[test]
-    fn test_cut_same_coeff() {
-    }
+    fn test_cut_same_coeff() {}
 
     #[test]
-    fn test_cut_no_clash() {
-    }
+    fn test_cut_no_clash() {}
 
     #[test]
-    fn test_cut_fully_clash() {
-    }
+    fn test_cut_fully_clash() {}
 
     #[test]
-    fn test_cut_fully_resolves() {
-    }
+    fn test_cut_fully_resolves() {}
 
     #[test]
-    fn test_cut_contradiction() {
-    }
+    fn test_cut_contradiction() {}
 
     #[test]
-    fn test_cut_nothing_learned() {
-    }
+    fn test_cut_nothing_learned() {}
 
     #[test]
-    fn test_cut_overflow() {
-    }
+    fn test_cut_overflow() {}
 
     #[test]
-    fn test_cut_normalisation() {
-    }
+    fn test_cut_normalisation() {}
 }
