@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use log::debug;
 
-use crate::basic_types::moving_averages::MovingAverage;
+use crate::basic_types::moving_averages::{CumulativeMovingAverage, MovingAverage};
 use crate::basic_types::StoredConflictInfo;
 use crate::engine::conflict_analysis::ConflictAnalysisContext;
 use crate::engine::conflict_analysis::ConflictResolveResult;
@@ -23,16 +23,6 @@ use crate::variables::DomainId;
 #[derive(Debug, Default)]
 pub struct IntSatConflictResolver {
     resolution_resolver: ResolutionResolver,
-}
-
-fn div_ceil(num: i32, div: i32) -> i32 {
-    let d = num / div;
-    let r = num % div;
-    if (r > 0 && div > 0) || (r < 0 && div < 0) {
-        d + 1
-    } else {
-        d
-    }
 }
 
 enum CutResult {
@@ -446,6 +436,16 @@ impl ConflictResolver for IntSatConflictResolver {
     }
 }
 
+fn div_ceil(num: i32, div: i32) -> i32 {
+    let d = num / div;
+    let r = num % div;
+    if (r > 0 && div > 0) || (r < 0 && div < 0) {
+        d + 1
+    } else {
+        d
+    }
+}
+
 #[inline]
 fn gcd(a: i32, b: i32) -> i32 {
     let mut m = a;
@@ -488,4 +488,70 @@ fn gcd(a: i32, b: i32) -> i32 {
         }
     }
     m << shift
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::engine::conflict_analysis::IntSatConflictResolver;
+    use crate::engine::propagation::linear_less_or_equal::LinearLessOrEqual;
+    use crate::variables::DomainId;
+
+    fn construct_test_vars() -> [DomainId; 5] {
+        let a = DomainId::new(0);
+        let b = DomainId::new(1);
+        let c = DomainId::new(2);
+        let d = DomainId::new(3);
+        let e = DomainId::new(4);
+
+        [a, b, c, d, e]
+    }
+
+    #[test]
+    fn test_cut_simple() {
+        let [a, b, c, d, e] = construct_test_vars();
+
+        let x = LinearLessOrEqual {
+            lhs: vec![(a, 10), (b, 2), (c, 4), (d, -5)],
+            rhs: 0,
+        };
+
+        let y = LinearLessOrEqual {
+            lhs: vec![(a, -4), (b, -4), (c, 6), (e, 8)],
+            rhs: 0,
+        };
+
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+    }
+
+    #[test]
+    fn test_cut_same_coeff() {
+    }
+
+    #[test]
+    fn test_cut_no_clash() {
+    }
+
+    #[test]
+    fn test_cut_fully_clash() {
+    }
+
+    #[test]
+    fn test_cut_fully_resolves() {
+    }
+
+    #[test]
+    fn test_cut_contradiction() {
+    }
+
+    #[test]
+    fn test_cut_nothing_learned() {
+    }
+
+    #[test]
+    fn test_cut_overflow() {
+    }
+
+    #[test]
+    fn test_cut_normalisation() {
+    }
 }
