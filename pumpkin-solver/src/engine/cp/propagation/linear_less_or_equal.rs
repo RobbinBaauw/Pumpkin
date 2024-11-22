@@ -131,3 +131,13 @@ impl Display for LinearLessOrEqual {
         }
     }
 }
+
+impl PartialEq for LinearLessOrEqual {
+    fn eq(&self, other: &Self) -> bool {
+        if self.rhs != other.rhs { return false; }
+
+        let self_sorted = self.lhs.iter().sorted_by_key(|(var, _)| var.id);
+        let other_sorted = other.lhs.iter().sorted_by_key(|(var, _)| var.id);
+        self_sorted.eq(other_sorted)
+    }
+}

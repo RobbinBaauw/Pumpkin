@@ -18,6 +18,7 @@ use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
 use crate::pumpkin_assert_ne_simple;
+use crate::pumpkin_assert_simple;
 use crate::variables::DomainId;
 
 #[derive(Debug, Default)]
@@ -47,12 +48,14 @@ impl IntSatConflictResolver {
     }
 
     fn apply_cut(var: DomainId, c1: &LinearLessOrEqual, c2: &LinearLessOrEqual) -> CutResult {
-        let c1_scale = c1.find_variable_scale(var).unwrap().abs();
-        let c2_scale = c2.find_variable_scale(var).unwrap().abs();
+        let c1_scale = c1.find_variable_scale(var).unwrap();
+        let c2_scale = c2.find_variable_scale(var).unwrap();
 
-        let g = gcd(c1_scale, c2_scale);
-        let mult_c1 = c1_scale / g;
-        let mult_c2 = c2_scale / g;
+        pumpkin_assert_ne_simple!(c1_scale.is_positive(), c2_scale.is_positive());
+
+        let g = gcd(c1_scale.abs(), c2_scale.abs());
+        let mult_c1 = c2_scale.abs() / g;
+        let mult_c2 = c1_scale.abs() / g;
 
         let mut skip_early_backjump = true;
 
@@ -88,6 +91,8 @@ impl IntSatConflictResolver {
                 let _ = new_lhs.remove(&id);
             }
         }
+
+        pumpkin_assert_simple!(!new_lhs.contains_key(&var), "variable not eliminated");
 
         let Some(c1_rhs_scaled) = c1.rhs.checked_mul(mult_c1) else {
             return CutResult::Overflow;
@@ -446,7 +451,6 @@ fn div_ceil(num: i32, div: i32) -> i32 {
     }
 }
 
-#[inline]
 fn gcd(a: i32, b: i32) -> i32 {
     let mut m = a;
     let mut n = b;
@@ -492,6 +496,10 @@ fn gcd(a: i32, b: i32) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutResult::Contradiction;
+    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutResult::NothingLearned;
+    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutResult::Overflow;
+    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutResult::Success;
     use crate::engine::conflict_analysis::IntSatConflictResolver;
     use crate::engine::propagation::linear_less_or_equal::LinearLessOrEqual;
     use crate::variables::DomainId;
@@ -512,38 +520,198 @@ mod tests {
 
         let x = LinearLessOrEqual {
             lhs: vec![(a, 10), (b, 2), (c, 4), (d, -5)],
-            rhs: 0,
+            rhs: 12,
         };
 
         let y = LinearLessOrEqual {
             lhs: vec![(a, -4), (b, -4), (c, 6), (e, 8)],
-            rhs: 0,
+            rhs: -6,
         };
 
         let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+
+        let Success {
+            skip_early_backjump,
+            inequality,
+        } = cut_result
+        else {
+            panic!("expected a successful cut")
+        };
+
+        let z = LinearLessOrEqual {
+            lhs: vec![(b, -8), (c, 19), (d, -5), (e, 20)],
+            rhs: -3,
+        };
+
+        assert_eq!(
+            skip_early_backjump, false,
+            "should be backjumping early due to clash"
+        );
+        assert_eq!(inequality, z);
     }
 
     #[test]
-    fn test_cut_same_coeff() {}
+    fn test_cut_same_coeff() {
+        let [a, b, c, d, e] = construct_test_vars();
+
+        let x = LinearLessOrEqual {
+            lhs: vec![(a, -4), (b, 2), (c, 4), (d, -5)],
+            rhs: 10,
+        };
+
+        let y = LinearLessOrEqual {
+            lhs: vec![(a, 4), (b, -4), (c, 6), (e, 8)],
+            rhs: -5,
+        };
+
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+
+        let Success {
+            skip_early_backjump,
+            inequality,
+        } = cut_result
+        else {
+            panic!("expected a successful cut")
+        };
+
+        let z = LinearLessOrEqual {
+            lhs: vec![(b, -2), (c, 10), (d, -5), (e, 8)],
+            rhs: 5,
+        };
+
+        assert_eq!(
+            skip_early_backjump, false,
+            "should be backjumping early due to clash"
+        );
+        assert_eq!(inequality, z);
+    }
 
     #[test]
-    fn test_cut_no_clash() {}
+    fn test_cut_no_clash() {
+        let [a, b, c, d, e] = construct_test_vars();
+
+        let x = LinearLessOrEqual {
+            lhs: vec![(a, -4), (b, 2), (c, 4), (d, -5)],
+            rhs: 10,
+        };
+
+        let y = LinearLessOrEqual {
+            lhs: vec![(a, 4), (e, 8)],
+            rhs: -5,
+        };
+
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+
+        let Success {
+            skip_early_backjump,
+            inequality,
+        } = cut_result
+        else {
+            panic!("expected a successful cut")
+        };
+
+        let z = LinearLessOrEqual {
+            lhs: vec![(b, 2), (c, 4), (d, -5), (e, 8)],
+            rhs: 5,
+        };
+
+        assert_eq!(
+            skip_early_backjump, true,
+            "should not be backjumping early due to lack of clash"
+        );
+        assert_eq!(inequality, z);
+    }
 
     #[test]
-    fn test_cut_fully_clash() {}
+    fn test_cut_fully_clash() {
+        let [a, b, c, d, e] = construct_test_vars();
+
+        let x = LinearLessOrEqual {
+            lhs: vec![(a, -10), (b, 2), (c, 4), (d, -5), (e, -1)],
+            rhs: 10,
+        };
+
+        let y = LinearLessOrEqual {
+            lhs: vec![(a, 4), (b, -4), (c, 6), (d, 5), (e, 8)],
+            rhs: -5,
+        };
+
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+
+        let Success {
+            skip_early_backjump,
+            inequality,
+        } = cut_result
+        else {
+            panic!("expected a successful cut")
+        };
+
+        let z = LinearLessOrEqual {
+            lhs: vec![(b, -16), (c, 38), (d, 15), (e, 38)],
+            rhs: -5,
+        };
+
+        assert_eq!(
+            skip_early_backjump, false,
+            "should be backjumping early due to clash"
+        );
+        assert_eq!(inequality, z);
+    }
 
     #[test]
-    fn test_cut_fully_resolves() {}
+    fn test_cut_contradiction() {
+        let [a, b, c, d, e] = construct_test_vars();
+
+        let x = LinearLessOrEqual {
+            lhs: vec![(a, -2), (b, 2), (c, -3), (d, -5), (e, -4)],
+            rhs: 0,
+        };
+
+        let y = LinearLessOrEqual {
+            lhs: vec![(a, 4), (b, -4), (c, 6), (d, 10), (e, 8)],
+            rhs: -5,
+        };
+
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+
+        assert!(matches!(cut_result, Contradiction {}));
+    }
 
     #[test]
-    fn test_cut_contradiction() {}
+    fn test_cut_nothing_learned() {
+        let [a, b, c, d, e] = construct_test_vars();
+
+        let x = LinearLessOrEqual {
+            lhs: vec![(a, -2), (b, 2), (c, -3), (d, -5), (e, -4)],
+            rhs: 10,
+        };
+
+        let y = LinearLessOrEqual {
+            lhs: vec![(a, 4), (b, -4), (c, 6), (d, 10), (e, 8)],
+            rhs: -5,
+        };
+
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+
+        assert!(matches!(cut_result, NothingLearned {}));
+    }
 
     #[test]
-    fn test_cut_nothing_learned() {}
+    fn test_cut_overflow() {
+        let [a, b, c, d, e] = construct_test_vars();
 
-    #[test]
-    fn test_cut_overflow() {}
+        let x = LinearLessOrEqual {
+            lhs: vec![(a, -99997), (b, 223545223), (c, -3), (d, -5), (e, -4)],
+            rhs: 10,
+        };
 
-    #[test]
-    fn test_cut_normalisation() {}
+        let y = LinearLessOrEqual {
+            lhs: vec![(a, 99995), (b, -1000), (c, 6), (d, 10), (e, 8)],
+            rhs: -5,
+        };
+
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+
+        assert!(matches!(cut_result, Overflow {}));
+    }
 }
