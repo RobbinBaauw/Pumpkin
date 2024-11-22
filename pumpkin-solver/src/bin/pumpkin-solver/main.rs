@@ -7,9 +7,12 @@ mod result;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fs::File;
+use std::io::stdout;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::sync::RwLock;
 use std::time::Duration;
 
 use clap::Parser;
@@ -385,6 +388,8 @@ fn configure_logging_minizinc(verbose: bool, log_statistics: bool) -> std::io::R
     Ok(())
 }
 
+static OUTPUT_LOGGER: OnceLock<RwLock<Box<dyn Write + Send + Sync>>> = OnceLock::new();
+
 fn configure_logging_sat(
     verbose: bool,
     log_statistics: bool,
@@ -447,6 +452,11 @@ fn run() -> PumpkinResult<()> {
         }
     };
 
+    let output_logger = OUTPUT_LOGGER.get_or_init(|| {
+        let writer: Box<dyn Write + Send + Sync> = Box::new(stdout());
+        RwLock::from(writer)
+    });
+
     configure_logging(
         file_format,
         args.verbose,
@@ -495,6 +505,7 @@ fn run() -> PumpkinResult<()> {
         lbd_threshold: args.learning_lbd_threshold,
         nogood_sorting_strategy: args.learning_sorting_strategy,
         activity_bump_increment: 1.0,
+        skip_nogood_learning: false,
     };
 
     let solver_options = SolverOptions {
@@ -535,6 +546,7 @@ fn run() -> PumpkinResult<()> {
                     args.cumulative_incremental_backtracking,
                 ),
             },
+            output_logger,
         )?,
     }
 

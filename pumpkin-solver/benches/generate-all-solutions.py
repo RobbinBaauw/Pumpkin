@@ -3,7 +3,7 @@ from multiprocessing.pool import ThreadPool
 from pathlib import Path
 
 BENCH_SET_DIR = Path(__file__).parent / "examples-set"
-BENCH_SOLUTIONS_DIR = Path(__file__).parent / "examples-solutions"
+BENCH_SOLUTIONS_DIR = Path(__file__).parent / "examples-set"
 
 thread_pool = ThreadPool()
 

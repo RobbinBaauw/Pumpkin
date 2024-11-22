@@ -143,6 +143,8 @@ def parse_stat_file(stat_path: Path):
     for line_i in range(0, len(stats_lines)):
         line_val = stats_lines[line_i]
 
+        if len(line_val) == 0: continue
+
         _, _, stat, value = parse_stat_line(line_val)
 
         match stat:
@@ -220,7 +222,7 @@ def parse_intsat(stderr_path: Path):
     file_name = file_path.stem
 
     if "Internal error" in output[2]:
-        return "intsat", file_name, file_path, "??", None
+        return "intsat", file_name, file_path, "??", None, None
 
     for stats_line_i in range(5, len(output)):
         line = output[stats_line_i]
@@ -280,16 +282,22 @@ def parse_results_dir(results_dir: Path):
             else:
                 stderr = parse_stderr(exp_dir / "stderr")
                 stdout = parse_stdout(exp_dir / "stdout")
-                use_intsat, skip_nogood_learning, stats = parse_stat_file(exp_dir / "run_stats")
-                version, file_path, file_name = parse_run_info(exp_dir / "run_info")
-                outputs = parse_outputs(exp_dir / "run_outputs")
 
-                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, stderr, stdout, RunData(
-                    use_intsat,
-                    skip_nogood_learning,
-                    stats,
-                    outputs,
-                )))
+                version, file_path, file_name = parse_run_info(exp_dir / "run_info")
+
+                if stderr is None:
+                    use_intsat, skip_nogood_learning, stats = parse_stat_file(exp_dir / "run_stats")
+                    outputs = parse_outputs(exp_dir / "run_outputs")
+                    run_data = RunData(
+                        use_intsat,
+                        skip_nogood_learning,
+                        stats,
+                        outputs,
+                    )
+                else:
+                    run_data = None
+
+                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, stderr, stdout, run_data))
 
     return results
 
@@ -330,9 +338,9 @@ def parse_bench_results():
 
 
 def parse_examples_results():
-    resolution_results = parse_results_dir(BASE_DIR / "7" / "1")
-    intsat_results = parse_results_dir(BASE_DIR / "7" / "0")
-    intsat_skip_results = parse_results_dir(BASE_DIR / "8" / "0")
+    resolution_results = parse_results_dir(BASE_DIR / "13" / "2")
+    intsat_results = parse_results_dir(BASE_DIR / "12" / "0")
+    intsat_skip_results = parse_results_dir(BASE_DIR / "12" / "1")
     intsat_og_results = parse_results_dir(BASE_DIR / "9" / "0")
 
     assert all(map(lambda r: r.run_data is None or (not r.run_data.use_intsat and not r.run_data.skip_nogood_learning), resolution_results))
@@ -496,7 +504,7 @@ def verify_solutions(results: Results):
 
 
 if __name__ == "__main__":
-    # parse_examples_results()
+    parse_examples_results()
     with open('results_out_examples.pkl', 'rb') as results_file:
         results = pickle.load(results_file)
     table = examples_results_to_table(results)

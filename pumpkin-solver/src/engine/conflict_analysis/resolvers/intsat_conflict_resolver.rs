@@ -17,7 +17,8 @@ use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
-use crate::{pumpkin_assert_advanced, pumpkin_assert_ne_simple};
+use crate::pumpkin_assert_advanced;
+use crate::pumpkin_assert_ne_simple;
 use crate::pumpkin_assert_simple;
 use crate::variables::DomainId;
 
@@ -269,8 +270,12 @@ impl ConflictResolver for IntSatConflictResolver {
             // last one might not be the one actually causing the conflict. The one that caused
             // the conflict should have a different sign. We search until we find that one.
             let cutting_var = trail_entry.predicate.get_domain();
-            let c1_scale = conflicting_constraint.find_variable_scale(cutting_var).unwrap();
-            let c2_scale = prop_constraint_expl.find_variable_scale(cutting_var).unwrap();
+            let c1_scale = conflicting_constraint
+                .find_variable_scale(cutting_var)
+                .unwrap();
+            let c2_scale = prop_constraint_expl
+                .find_variable_scale(cutting_var)
+                .unwrap();
 
             if c1_scale.is_positive() == c2_scale.is_positive() {
                 debug!("==> Not different signs, retry");
