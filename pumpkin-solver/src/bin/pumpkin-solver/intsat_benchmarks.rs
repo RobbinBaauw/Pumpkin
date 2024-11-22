@@ -53,9 +53,10 @@ struct Args {
 
 static STAT_HEADER: OnceLock<String> = OnceLock::new();
 
-fn open_file_for_append(name: &str) -> Box<dyn Write + Send + Sync> {
+fn open_file(name: &str) -> Box<dyn Write + Send + Sync> {
     let f = OpenOptions::new()
-        .append(true)
+        .write(true)
+        .truncate(true)
         .create(true)
         .open(name)
         .expect("Cannot open file");
@@ -69,18 +70,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     let mut general_logger = if args.log_to_files {
-        open_file_for_append("run_info")
+        open_file("run_info")
     } else {
         Box::new(stdout())
     };
     let stats_logger = if args.log_to_files {
-        open_file_for_append("run_info")
+        open_file("run_stats")
     } else {
         Box::new(stdout())
     };
     let output_logger = OUTPUT_LOGGER.get_or_init(|| {
         RwLock::from(if args.log_to_files {
-            open_file_for_append("run_outputs")
+            open_file("run_outputs")
         } else {
             Box::new(stdout())
         })
