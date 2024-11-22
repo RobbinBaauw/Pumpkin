@@ -10,8 +10,9 @@ use drcp_format::steps::StepId;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
-use super::conflict_analysis::{AnalysisMode, IntSatConflictResolver};
+use super::conflict_analysis::AnalysisMode;
 use super::conflict_analysis::ConflictAnalysisContext;
+use super::conflict_analysis::IntSatConflictResolver;
 use super::conflict_analysis::LearnedNogood;
 use super::conflict_analysis::NoLearningResolver;
 use super::conflict_analysis::SemanticMinimiser;
@@ -34,6 +35,8 @@ use crate::basic_types::SolutionReference;
 use crate::basic_types::StoredConflictInfo;
 use crate::branching::Brancher;
 use crate::branching::SelectionContext;
+use crate::engine::conflict_analysis::ConflictResolveResult::Constraint;
+use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::engine::conflict_analysis::ConflictResolver as Resolver;
 use crate::engine::cp::PropagatorQueue;
 use crate::engine::cp::WatchListCP;
@@ -44,10 +47,9 @@ use crate::engine::propagation::PropagationContext;
 use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
-use crate::engine::reason::{Reason, ReasonStore};
+use crate::engine::reason::ReasonStore;
 use crate::engine::variables::DomainId;
 use crate::engine::Assignments;
-use crate::engine::conflict_analysis::ConflictResolveResult::{Constraint, Nogood};
 use crate::engine::DebugHelper;
 use crate::engine::IntDomainEvent;
 use crate::engine::RestartOptions;
@@ -671,8 +673,10 @@ impl ConstraintSatisfactionSolver {
                     .expect("Expected core extraction to be able to extract a core");
 
                 match resolve_result {
-                    Nogood(learned_nogood) => CoreExtractionResult::Core(learned_nogood.predicates.clone()),
-                    Constraint(_) => unreachable!("Shouldn't be possible")
+                    Nogood(learned_nogood) => {
+                        CoreExtractionResult::Core(learned_nogood.predicates.clone())
+                    }
+                    Constraint(_) => unreachable!("Shouldn't be possible"),
                 }
             })
     }
@@ -984,7 +988,9 @@ impl ConstraintSatisfactionSolver {
             &mut self.propagators[Self::get_nogood_propagator_id()],
             learned_nogood.predicates,
             &mut context,
-            self.internal_parameters.learning_options.skip_nogood_learning,
+            self.internal_parameters
+                .learning_options
+                .skip_nogood_learning,
         )
     }
 
@@ -995,7 +1001,9 @@ impl ConstraintSatisfactionSolver {
         skip_nogood_learning: bool,
     ) {
         match nogood_propagator.downcast_mut::<NogoodPropagator>() {
-            Some(nogood_propagator) => nogood_propagator.add_asserting_nogood(nogood, context, skip_nogood_learning),
+            Some(nogood_propagator) => {
+                nogood_propagator.add_asserting_nogood(nogood, context, skip_nogood_learning)
+            }
             None => panic!("Provided propagator should be the nogood propagator"),
         }
     }

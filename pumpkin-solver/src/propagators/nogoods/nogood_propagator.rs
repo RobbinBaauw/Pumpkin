@@ -1,5 +1,5 @@
 use std::ops::Not;
-use itertools::Itertools;
+
 use log::warn;
 
 use super::LearnedNogoodSortingStrategy;
@@ -896,7 +896,6 @@ impl NogoodPropagator {
                 self.learned_nogood_ids.high_lbd.push(new_id);
             }
         };
-
     }
 
     /// Adds a nogood to the propagator as a permanent nogood and sets the internal state to be

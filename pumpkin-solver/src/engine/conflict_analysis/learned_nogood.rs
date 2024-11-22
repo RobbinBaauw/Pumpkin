@@ -16,5 +16,5 @@ pub(crate) struct LearnedNogood {
 #[derive(Clone, Debug)]
 pub enum ConflictResolveResult {
     Nogood(LearnedNogood),
-    Constraint(LearnedConstraint)
+    Constraint(LearnedConstraint),
 }

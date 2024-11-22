@@ -1,8 +1,13 @@
-use std::ops::{Add, Mul, Neg, Not, Sub};
+use std::ops::Add;
+use std::ops::Mul;
+use std::ops::Neg;
+use std::ops::Not;
+use std::ops::Sub;
 
 use enumset::EnumSet;
 
-use super::{DomainId, FlattenedVariable};
+use super::DomainId;
+use super::FlattenedVariable;
 use super::IntegerVariable;
 use super::TransformableVariable;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;

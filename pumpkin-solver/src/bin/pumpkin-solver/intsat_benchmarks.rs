@@ -4,15 +4,21 @@ mod flatzinc;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
+
 use clap::Parser;
-use log::{warn, LevelFilter};
+use log::warn;
+use log::LevelFilter;
+use pumpkin_solver::options::ConflictResolver::IntSat;
+use pumpkin_solver::options::ConflictResolver::UIP;
+use pumpkin_solver::options::CumulativeOptions;
+use pumpkin_solver::options::LearningOptions;
+use pumpkin_solver::options::RestartOptions;
+use pumpkin_solver::options::SolverOptions;
+use pumpkin_solver::proof::ProofLog;
+use pumpkin_solver::statistics::configure_statistic_logging;
+use pumpkin_solver::Solver;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
-use pumpkin_solver::options::{CumulativeOptions, LearningOptions, RestartOptions, SolverOptions};
-use pumpkin_solver::options::ConflictResolver::{IntSat, UIP};
-use pumpkin_solver::proof::ProofLog;
-use pumpkin_solver::Solver;
-use pumpkin_solver::statistics::configure_statistic_logging;
 
 use crate::flatzinc::FlatZincOptions;
 
@@ -38,14 +44,13 @@ struct Args {
     time_limit: Option<u64>,
 }
 
-fn configure_logging_minizinc(stat_header: &'static str, verbose: bool, log_statistics: bool) -> std::io::Result<()> {
+fn configure_logging_minizinc(
+    stat_header: &'static str,
+    verbose: bool,
+    log_statistics: bool,
+) -> std::io::Result<()> {
     if log_statistics {
-        configure_statistic_logging(
-            stat_header,
-            None,
-            None,
-            None,
-        );
+        configure_statistic_logging(stat_header, None, None, None);
     }
 
     let level_filter = if verbose {
@@ -55,9 +60,7 @@ fn configure_logging_minizinc(stat_header: &'static str, verbose: bool, log_stat
     };
 
     env_logger::Builder::new()
-        .format(move |buf, record| {
-            writeln!(buf, "{}", record.args())
-        })
+        .format(move |buf, record| writeln!(buf, "{}", record.args()))
         .filter_level(level_filter)
         .target(env_logger::Target::Stdout)
         .init();
@@ -74,7 +77,12 @@ fn main() {
 
     println!("Executing {:?}", args.instance_path);
 
-    let stat_header = STAT_HEADER.get_or_init(|| format!("$stat$-I{:?}-SL{:?}", args.use_intsat, args.skip_nogood_learning));
+    let stat_header = STAT_HEADER.get_or_init(|| {
+        format!(
+            "$stat$-I{:?}-SL{:?}",
+            args.use_intsat, args.skip_nogood_learning
+        )
+    });
     let _ = configure_logging_minizinc(stat_header, args.verbose, true);
 
     if pumpkin_solver::asserts::PUMPKIN_ASSERT_LEVEL_DEFINITION
@@ -97,10 +105,7 @@ fn main() {
 
     let time_limit = args.time_limit.map(Duration::from_millis);
 
-    let instance_path = args
-        .instance_path
-        .to_str()
-        .expect("Invalid path");
+    let instance_path = args.instance_path.to_str().expect("Invalid path");
 
     flatzinc::solve(
         Solver::with_options(solver_options),
@@ -111,5 +116,6 @@ fn main() {
             all_solutions: args.all_solutions,
             cumulative_options: CumulativeOptions::default(),
         },
-    ).expect("Failed to solve");
+    )
+    .expect("Failed to solve");
 }

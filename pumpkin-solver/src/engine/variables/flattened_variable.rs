@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+
 use crate::variables::DomainId;
 
 #[derive(Debug, Clone, Copy)]

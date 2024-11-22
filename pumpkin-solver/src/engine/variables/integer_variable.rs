@@ -1,6 +1,7 @@
 use enumset::EnumSet;
 
-use super::{FlattenedVariable, TransformableVariable};
+use super::FlattenedVariable;
+use super::TransformableVariable;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::predicates::predicate_constructor::PredicateConstructor;
 use crate::engine::reason::ReasonRef;

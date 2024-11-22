@@ -1,6 +1,9 @@
 use itertools::Itertools;
-use crate::basic_types::PropositionalConjunction;
+
 use crate::basic_types::PropagationStatusCP;
+use crate::basic_types::PropositionalConjunction;
+use crate::create_statistics_struct;
+use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::cp::propagation::ReadDomains;
 use crate::engine::domain_events::DomainEvents;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
@@ -9,19 +12,17 @@ use crate::engine::propagation::LocalId;
 use crate::engine::propagation::PropagationContext;
 use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
-use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::variables::IntegerVariable;
-use crate::{create_statistics_struct, predicate};
+use crate::predicate;
 use crate::pumpkin_assert_simple;
-use crate::statistics::{Statistic, StatisticLogger};
+use crate::statistics::Statistic;
+use crate::statistics::StatisticLogger;
 
-create_statistics_struct!(
-    LinearLessOrEqualStatistics {
-        number_of_executions: u64,
-        number_of_propagations: u64,
-    }
-);
+create_statistics_struct!(LinearLessOrEqualStatistics {
+    number_of_executions: u64,
+    number_of_propagations: u64,
+});
 
 /// Propagator for the constraint `reif => \sum x_i <= c`.
 #[derive(Clone, Debug)]
@@ -160,7 +161,10 @@ where
     fn linear_inequality_explanation(&self) -> Option<LinearLessOrEqual> {
         let flat_vars = self.x.iter().map(|var| var.flatten()).collect_vec();
 
-        let lhs = flat_vars.iter().map(|var| (var.id, var.scale)).collect_vec();
+        let lhs = flat_vars
+            .iter()
+            .map(|var| (var.id, var.scale))
+            .collect_vec();
 
         let var_offsets = flat_vars.iter().map(|var| var.offset).sum::<i32>();
         let rhs = self.c - var_offsets;
@@ -172,7 +176,9 @@ where
         self.statistics.number_of_executions += 1;
 
         if let Some(conjunction) = self.detect_inconsistency(context.as_readonly()) {
-            if self.statistics.number_of_executions == 1 { self.errored_initially = true; }
+            if self.statistics.number_of_executions == 1 {
+                self.errored_initially = true;
+            }
             return Err(conjunction.into());
         }
 
@@ -201,7 +207,12 @@ where
             }
         }
 
-        pumpkin_assert_simple!(!self.is_learned || self.errored_initially || self.statistics.number_of_propagations >= 1, "A newly learned constraint should always propagate!");
+        pumpkin_assert_simple!(
+            !self.is_learned
+                || self.errored_initially
+                || self.statistics.number_of_propagations >= 1,
+            "A newly learned constraint should always propagate!"
+        );
 
         Ok(())
     }

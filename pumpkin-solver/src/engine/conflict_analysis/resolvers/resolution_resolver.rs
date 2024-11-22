@@ -9,9 +9,9 @@ use crate::engine::conflict_analysis::minimisers::Mode;
 use crate::engine::conflict_analysis::minimisers::RecursiveMinimiser;
 use crate::engine::conflict_analysis::ConflictAnalysisContext;
 use crate::engine::conflict_analysis::ConflictResolveResult;
+use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::engine::conflict_analysis::LearnedNogood;
 use crate::engine::Assignments;
-use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::predicates::Predicate;
 use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
@@ -65,7 +65,10 @@ impl ResolutionResolver {
 }
 
 impl ConflictResolver for ResolutionResolver {
-    fn resolve_conflict(&mut self, context: &mut ConflictAnalysisContext) -> Option<ConflictResolveResult> {
+    fn resolve_conflict(
+        &mut self,
+        context: &mut ConflictAnalysisContext,
+    ) -> Option<ConflictResolveResult> {
         self.clean_up();
 
         // Initialise the data structures with the conflict nogood.
@@ -247,7 +250,10 @@ impl ConflictResolver for ResolutionResolver {
         let resolve_result_unwrap = resolve_result.as_ref().expect("Expected nogood");
 
         pumpkin_assert_simple!(matches!(resolve_result_unwrap, Nogood(..)));
-        let learned_nogood = match resolve_result_unwrap { Nogood(no_good) => no_good, _ => unreachable!() };
+        let learned_nogood = match resolve_result_unwrap {
+            Nogood(no_good) => no_good,
+            _ => unreachable!(),
+        };
 
         context.backtrack(learned_nogood.backjump_level);
         Ok(())

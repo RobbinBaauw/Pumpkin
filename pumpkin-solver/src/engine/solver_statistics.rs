@@ -45,11 +45,9 @@ create_statistics_struct!(
         average_backtrack_amount: CumulativeMovingAverage,
 });
 
-create_statistics_struct!(
-    IntSatStatistics {
-        intsat_learned_constraints: u64,
-        intsat_learned_constraints_avg_length: CumulativeMovingAverage,
-        intsat_constraint_avg_lhs_coeff: CumulativeMovingAverage,
-        intsat_fallback_used: u64
-    }
-);
+create_statistics_struct!(IntSatStatistics {
+    intsat_learned_constraints: u64,
+    intsat_learned_constraints_avg_length: CumulativeMovingAverage,
+    intsat_constraint_avg_lhs_coeff: CumulativeMovingAverage,
+    intsat_fallback_used: u64
+});

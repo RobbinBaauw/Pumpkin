@@ -1,7 +1,12 @@
-use std::ops::{Add, Mul, Neg, Sub};
+use std::ops::Add;
+use std::ops::Mul;
+use std::ops::Neg;
+use std::ops::Sub;
+
 use enumset::EnumSet;
 
-use super::{FlattenedVariable, TransformableVariable};
+use super::FlattenedVariable;
+use super::TransformableVariable;
 use crate::containers::StorageKey;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::reason::ReasonRef;

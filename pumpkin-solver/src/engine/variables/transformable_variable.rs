@@ -1,11 +1,14 @@
-use std::ops::{Add, Mul, Neg, Sub};
+use std::ops::Add;
+use std::ops::Mul;
+use std::ops::Neg;
+use std::ops::Sub;
 
 /// Trait for transforming a variable.
 ///
 /// At the moment this allows creating a scaled version of a
 /// variable using [`TransformableVariable::scaled`] or creating a variable with a constant offset
 /// based on the original variable using [`TransformableVariable::offset`].
-pub trait TransformableVariable<View> : Mul<i32> + Add<i32> + Sub<i32> + Neg {
+pub trait TransformableVariable<View>: Mul<i32> + Add<i32> + Sub<i32> + Neg {
     /// Get a variable which domain is scaled compared to the domain of self.
     ///
     /// The scaled domain will have holes in it. E.g. if we have `dom(x) = {1, 2}`, then
