@@ -338,9 +338,9 @@ def parse_bench_results():
 
 
 def parse_examples_results():
-    resolution_results = parse_results_dir(BASE_DIR / "13" / "2")
-    intsat_results = parse_results_dir(BASE_DIR / "12" / "0")
-    intsat_skip_results = parse_results_dir(BASE_DIR / "12" / "1")
+    resolution_results = parse_results_dir(BASE_DIR / "12" / "2")
+    intsat_results = parse_results_dir(BASE_DIR / "11" / "0")
+    intsat_skip_results = parse_results_dir(BASE_DIR / "11" / "1")
     intsat_og_results = parse_results_dir(BASE_DIR / "9" / "0")
 
     assert all(map(lambda r: r.run_data is None or (not r.run_data.use_intsat and not r.run_data.skip_nogood_learning), resolution_results))
