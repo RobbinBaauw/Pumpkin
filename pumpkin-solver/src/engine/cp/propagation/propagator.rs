@@ -150,6 +150,13 @@ pub trait Propagator: Downcast {
         _: &mut PropagatorInitialisationContext,
     ) -> Result<(), PropositionalConjunction>;
 
+    fn initialise_at_non_root(
+        &mut self,
+        ctx: &mut PropagatorInitialisationContext,
+    ) -> Result<(), PropositionalConjunction> {
+        self.initialise_at_root(ctx)
+    }
+
     /// A check whether this propagator can detect an inconsistency.
     ///
     /// By implementing this function, if the propagator is reified, it can propagate the

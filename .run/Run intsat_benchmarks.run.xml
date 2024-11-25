@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Run intsat_benchmarks" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-    <option name="buildProfileId" value="dev" />
-    <option name="command" value="run --features &quot;debug-checks&quot; --package pumpkin-solver --bin intsat_benchmarks -- --use-intsat --verbose $PROJECT_DIR$/pumpkin-solver/benches/examples-set/restart/restarta.fzn" />
+    <option name="buildProfileId" value="release" />
+    <option name="command" value="run --features debug-checks --package pumpkin-solver --bin intsat_benchmarks -- --log-to-files --use-intsat --all-solutions $PROJECT_DIR$/pumpkin-solver/benches/examples-set/constrained_connected/constrained_connected_constrained_connected.fzn" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$" />
     <envs />
     <option name="emulateTerminal" value="true" />

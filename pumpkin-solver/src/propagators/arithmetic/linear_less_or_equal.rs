@@ -40,7 +40,7 @@ pub(crate) struct LinearLessOrEqualPropagator<Var> {
     statistics: LinearLessOrEqualStatistics,
 }
 
-impl<Var> LinearLessOrEqualPropagator<Var>
+impl<Var: 'static> LinearLessOrEqualPropagator<Var>
 where
     Var: IntegerVariable,
 {
@@ -80,6 +80,16 @@ where
                 *bound = context.lower_bound(&self.x[index]);
             });
     }
+
+    fn initialise_base(&mut self, context: &mut PropagatorInitialisationContext) -> Result<(), PropositionalConjunction> {
+        self.recalculate_incremental_state(context.as_readonly());
+
+        if let Some(conjunction) = self.detect_inconsistency(context.as_readonly()) {
+            Err(conjunction)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl<Var: 'static> Propagator for LinearLessOrEqualPropagator<Var>
@@ -98,13 +108,22 @@ where
             );
         });
 
-        self.recalculate_incremental_state(context.as_readonly());
+        self.initialise_base(context)
+    }
 
-        if let Some(conjunction) = self.detect_inconsistency(context.as_readonly()) {
-            Err(conjunction)
-        } else {
-            Ok(())
-        }
+    fn initialise_at_non_root(
+        &mut self,
+        context: &mut PropagatorInitialisationContext,
+    ) -> Result<(), PropositionalConjunction> {
+        self.x.iter().enumerate().for_each(|(i, x_i)| {
+            let _ = context.register_unchecked(
+                x_i.clone(),
+                DomainEvents::LOWER_BOUND,
+                LocalId::from(i as u32),
+            );
+        });
+
+        self.initialise_base(context)
     }
 
     fn detect_inconsistency(

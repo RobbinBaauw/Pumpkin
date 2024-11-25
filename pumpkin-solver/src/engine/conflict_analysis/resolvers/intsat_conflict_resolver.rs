@@ -17,7 +17,6 @@ use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
-use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_ne_simple;
 use crate::pumpkin_assert_simple;
 use crate::variables::DomainId;
@@ -441,7 +440,7 @@ impl ConflictResolver for IntSatConflictResolver {
             &context.assignments,
         );
 
-        let _ = new_propagator.initialise_at_root(&mut initialisation_context);
+        let _ = new_propagator.initialise_at_non_root(&mut initialisation_context);
 
         // We know this the previous call can result in Err (as we also backtrack when the
         // constraint is still conflicting) We do not return an error however, as the fact

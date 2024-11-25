@@ -65,6 +65,17 @@ pub fn solve(
     );
 
     let instance = parse_and_compile(&mut solver, instance, options)?;
+    let outputs = instance.outputs.clone();
+
+    solver.with_solution_callback(move |solution_callback_arguments| {
+        if options.all_solutions {
+            print_solution_from_solver(
+                solution_callback_arguments.solution,
+                &outputs,
+                &mut unlock_writer(),
+            );
+        }
+    });
 
     let mut brancher = if options.free_search {
         // The free search flag is active, we just use the default brancher
@@ -92,11 +103,13 @@ pub fn solve(
                 let optimal_objective_value =
                     optimal_solution.get_integer_value(*objective_function.get_domain());
 
-                print_solution_from_solver(
-                    &optimal_solution,
-                    &instance.outputs,
-                    &mut unlock_writer(),
-                );
+                if !options.all_solutions {
+                    print_solution_from_solver(
+                        &optimal_solution,
+                        &instance.outputs,
+                        &mut unlock_writer(),
+                    )
+                }
                 writeln!(&mut unlock_writer(), "==========")?;
 
                 Some(optimal_objective_value)

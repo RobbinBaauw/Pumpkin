@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use helpers::check_solution;
 
-static EXP_ID: &str = "12/0";
+static EXP_ID: &str = "13/0";
 
 #[test]
 pub(crate) fn check_matching_solutions() -> Result<(), Box<dyn Error>> {
