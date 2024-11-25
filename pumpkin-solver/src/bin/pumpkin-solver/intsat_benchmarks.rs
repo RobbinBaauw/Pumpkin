@@ -41,6 +41,9 @@ struct Args {
     #[arg(long = "all-solutions")]
     all_solutions: bool,
 
+    #[arg(long = "fixed-search")]
+    fixed_search: bool,
+
     #[arg(long = "verbose")]
     verbose: bool,
 
@@ -90,9 +93,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     writeln!(&mut general_logger, "Version: 6")?;
     writeln!(&mut general_logger, "File: {:?}", args.instance_path)?;
     writeln!(&mut general_logger, "All solutions: {:?}", args.all_solutions)?;
-    writeln!(&mut general_logger, "Time-limit: {:?}", args.time_limit)?;
+    writeln!(&mut general_logger, "Time-limit: {:?}", args.time_limit.unwrap_or(0))?;
     writeln!(&mut general_logger, "Use intsat: {:?}", args.use_intsat)?;
     writeln!(&mut general_logger, "Skip nogood learning: {:?}", args.skip_nogood_learning)?;
+    writeln!(&mut general_logger, "Fixed search: {:?}", args.fixed_search)?;
 
     let stat_header = STAT_HEADER.get_or_init(|| {
         format!(
@@ -143,6 +147,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         instance_path,
         time_limit,
         FlatZincOptions {
+            append_fixed_brancher: args.fixed_search,
             free_search: false,
             all_solutions: args.all_solutions,
             cumulative_options: CumulativeOptions::default(),

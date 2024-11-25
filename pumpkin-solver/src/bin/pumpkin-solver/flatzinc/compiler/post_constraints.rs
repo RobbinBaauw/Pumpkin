@@ -20,7 +20,7 @@ use crate::flatzinc::FlatZincOptions;
 pub(crate) fn run(
     ast: &FlatZincAst,
     context: &mut CompilationContext,
-    options: FlatZincOptions,
+    options: &FlatZincOptions,
 ) -> Result<(), FlatZincError> {
     for constraint_item in &ast.constraint_decls {
         let flatzinc::ConstraintItem { id, exprs, annos } = constraint_item;

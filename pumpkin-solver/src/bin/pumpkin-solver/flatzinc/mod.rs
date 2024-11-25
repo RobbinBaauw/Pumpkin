@@ -10,7 +10,6 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::RwLock;
 use std::time::Duration;
-
 use pumpkin_solver::branching::branchers::alternating_brancher::AlternatingBrancher;
 use pumpkin_solver::branching::branchers::alternating_brancher::AlternatingStrategy;
 use pumpkin_solver::branching::branchers::dynamic_brancher::DynamicBrancher;
@@ -26,7 +25,6 @@ use pumpkin_solver::termination::Combinator;
 use pumpkin_solver::termination::OsSignal;
 use pumpkin_solver::termination::TimeBudget;
 use pumpkin_solver::Solver;
-
 use self::instance::FlatZincInstance;
 use self::instance::FlatzincObjective;
 use self::instance::Output;
@@ -37,6 +35,8 @@ const MSG_UNSATISFIABLE: &str = "=====UNSATISFIABLE=====";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct FlatZincOptions {
+    pub append_fixed_brancher: bool,
+
     /// If `true`, the solver will not strictly keep to the search annotations in the flatzinc.
     pub free_search: bool,
 

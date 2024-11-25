@@ -536,6 +536,7 @@ fn run() -> PumpkinResult<()> {
             instance_path,
             time_limit,
             FlatZincOptions {
+                append_fixed_brancher: false,
                 free_search: args.free_search,
                 all_solutions: args.all_solutions,
                 cumulative_options: CumulativeOptions::new(

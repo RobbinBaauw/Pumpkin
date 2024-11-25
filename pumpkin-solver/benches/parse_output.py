@@ -110,7 +110,7 @@ def parse_run_info(info_path: Path):
     file_name = file_path.stem
 
     _all_solutions = json.loads(info_lines[2].split(": ")[1])
-    _time_limit = json.loads(info_lines[3].split(": ")[1])
+    # _time_limit = json.loads(info_lines[3].split(": ")[1])
 
     use_intsat = json.loads(info_lines[4].split(": ")[1])
     skip_nogood_learning = json.loads(info_lines[5].split(": ")[1])
@@ -338,14 +338,14 @@ def parse_bench_results():
 
 
 def parse_examples_results():
-    resolution_results = parse_results_dir(BASE_DIR / "12" / "2")
-    intsat_results = parse_results_dir(BASE_DIR / "11" / "0")
-    intsat_skip_results = parse_results_dir(BASE_DIR / "11" / "1")
+    resolution_results = parse_results_dir(BASE_DIR / "15" / "2")
+    intsat_results = parse_results_dir(BASE_DIR / "15" / "0")
+    intsat_skip_results = parse_results_dir(BASE_DIR / "15" / "1")
     intsat_og_results = parse_results_dir(BASE_DIR / "9" / "0")
 
-    assert all(map(lambda r: r.run_data is None or (not r.run_data.use_intsat and not r.run_data.skip_nogood_learning), resolution_results))
-    assert all(map(lambda r: r.run_data is None or (r.run_data.use_intsat and not r.run_data.skip_nogood_learning), intsat_results))
-    assert all(map(lambda r: r.run_data is None or (r.run_data.use_intsat and r.run_data.skip_nogood_learning), intsat_skip_results))
+    assert all(map(lambda r: r.run_data is None or (not r.use_intsat and not r.skip_nogood_learning), resolution_results))
+    assert all(map(lambda r: r.run_data is None or (r.use_intsat and not r.skip_nogood_learning), intsat_results))
+    assert all(map(lambda r: r.run_data is None or (r.use_intsat and r.skip_nogood_learning), intsat_skip_results))
 
     results = {
         prob: {}
