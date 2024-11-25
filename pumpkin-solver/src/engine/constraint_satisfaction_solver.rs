@@ -352,9 +352,6 @@ impl ConstraintSatisfactionSolver {
     }
 
     fn complete_proof(&mut self) {
-        // TODO fix
-        return;
-
         pumpkin_assert_simple!(
             self.is_conflicting(),
             "Proof attempted to be completed while not in conflicting state"

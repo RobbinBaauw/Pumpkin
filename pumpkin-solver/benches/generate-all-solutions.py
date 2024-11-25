@@ -21,14 +21,13 @@ def generate_solutions(fzn_path: Path):
 
     print(f"({fzn_path.name}) Started generating solutions")
 
-    cmd = ["minizinc", "--solver", "cp-sat",
-           "-a", "--output-to-file", str(output_file.resolve()),
+    cmd = ["minizinc", "-a", "--output-to-file", str(output_file.resolve()),
            str(fzn_path.resolve())]
 
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     try:
-        stdout, stderr = p.communicate(timeout=150)
+        stdout, stderr = p.communicate(timeout=500)
         if p.returncode != 0:
             print(f"({fzn_path.name}) Error! {stderr}")
         else:

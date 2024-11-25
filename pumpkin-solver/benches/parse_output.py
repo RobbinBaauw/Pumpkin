@@ -450,59 +450,6 @@ def table_to_latex(table):
     return rendered
 
 
-def print_errored_problems(results: Results):
-    for (prob, progs_res) in results.items():
-        for prog_name, prog_res in progs_res.items():
-            if prog_res is None:
-                continue
-
-            if prog_res.run_error is None:
-                continue
-
-            # Ignore errors about unbounded ints/floats
-            if (("UnsupportedVariable(\"unbounded int\")" in prog_res.run_error.stderr) or
-                    ("UnsupportedVariable(\"float\")" in prog_res.run_error.stderr) or
-                    ("floats are not supported" in prog_res.run_error.stderr)):
-                continue
-
-            print(f"Found error in {prob} (program {prog_name})")
-            print(prog_res.run_error.stderr)
-            print("=======")
-
-
-def verify_solution(result: RunResult):
-    if (result.stderr is not None) or (result.run_data is None):
-        print(f"Not verifying solution {result.fzn_file_name} with error")
-        return
-
-    if result.run_data.outputs.result is not Result.SUCCESS:
-        print(f"Not verifying solution {result.fzn_file_name} with result {result.run_data.outputs.result}")
-        return
-
-    if result.run_data.outputs.outputs is None:
-        print(f"Not verifying solution {result.fzn_file_name} with empty result {result.run_data.outputs.outputs}")
-        return
-
-    fzn_path = BENCH_DIR / result.fzn_file_path.parent.name / result.fzn_file_name
-
-    # TODO FIX
-    cmd = ["minizinc", str(fzn_path), "-D", f"\"{result.run_data.outputs.outputs}\""]
-    res = str(subprocess.check_output(" ".join(cmd), shell=True))
-
-    if (("==UNSATISFIABLE==" in res) or
-        ("==UNBOUNDED==" in res) or
-        ("==UNSATorUNBOUNDED==" in res) or
-        ("==UNKNOWN==" in res) or
-        ("==ERROR==" in res)):
-        print(f"Not sure if output is correct: {res} \n with for {result.fzn_file_name}")
-
-
-def verify_solutions(results: Results):
-    for progs_res in results.values():
-        for prog_res in progs_res.values():
-            verify_solution(prog_res)
-
-
 if __name__ == "__main__":
     parse_examples_results()
     with open('results_out_examples.pkl', 'rb') as results_file:
@@ -513,6 +460,3 @@ if __name__ == "__main__":
     # parse_bench_results()
     # with open('results_out_bench.pkl', 'rb') as results_file:
     #     results = pickle.load(results_file)
-
-    # print_errored_problems(results)
-    # verify_solutions(results)
