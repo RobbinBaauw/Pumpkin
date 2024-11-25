@@ -43,6 +43,8 @@ create_statistics_struct!(
         average_learned_clause_length: CumulativeMovingAverage,
         /// The average number of levels which have been backtracked by the solver (e.g. when a learned clause is created)
         average_backtrack_amount: CumulativeMovingAverage,
+        /// The average literal-block distance (LBD) metric for newly added learned nogoods
+        average_lbd: CumulativeMovingAverage,
 });
 
 create_statistics_struct!(IntSatStatistics {

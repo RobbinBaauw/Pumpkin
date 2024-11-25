@@ -132,7 +132,7 @@ pub struct ConstraintSatisfactionSolver {
     backtrack_event_drain: Vec<(IntDomainEvent, DomainId)>,
     last_notified_cp_trail_index: usize,
     /// A set of counters updated during the search.
-    counters: SolverStatistics,
+    solver_statistics: SolverStatistics,
     /// Miscellaneous constant parameters used by the solver.
     internal_parameters: SatisfactionSolverOptions,
     /// The names of the variables in the solver.
@@ -361,7 +361,7 @@ impl ConstraintSatisfactionSolver {
         );
         let mut conflict_analysis_context = ConflictAnalysisContext {
             assignments: &mut self.assignments,
-            counters: &mut self.counters,
+            counters: &mut self.solver_statistics,
             solver_state: &mut self.state,
             reason_store: &mut self.reason_store,
             brancher: &mut DummyBrancher,
@@ -410,7 +410,7 @@ impl ConstraintSatisfactionSolver {
             backtrack_event_drain: vec![],
             restart_strategy: RestartStrategy::new(solver_options.restart_options),
             propagators: PropagatorStore::default(),
-            counters: SolverStatistics::default(),
+            solver_statistics: SolverStatistics::default(),
             variable_names: VariableNames::default(),
             semantic_minimiser: SemanticMinimiser::default(),
             lbd_helper: Lbd::default(),
@@ -469,8 +469,9 @@ impl ConstraintSatisfactionSolver {
         self.initialise(assumptions);
         let result = self.solve_internal(termination, brancher);
 
-        self.counters.engine_statistics.time_spent_in_solver +=
-            start_time.elapsed().as_millis() as u64;
+        self.solver_statistics
+            .engine_statistics
+            .time_spent_in_solver += start_time.elapsed().as_millis() as u64;
 
         result
     }
@@ -487,7 +488,7 @@ impl ConstraintSatisfactionSolver {
         // We first check whether the statistics will/should be logged to prevent unnecessarily
         // going through all the propagators
         if should_log_statistics() {
-            self.counters.log(StatisticLogger::default());
+            self.solver_statistics.log(StatisticLogger::default());
             for (index, propagator) in self.propagators.iter_propagators().enumerate() {
                 propagator.log_statistics(StatisticLogger::new([
                     propagator.name(),
@@ -649,7 +650,7 @@ impl ConstraintSatisfactionSolver {
             .unwrap_or_else(|| {
                 let mut conflict_analysis_context = ConflictAnalysisContext {
                     assignments: &mut self.assignments,
-                    counters: &mut self.counters,
+                    counters: &mut self.solver_statistics,
                     solver_state: &mut self.state,
                     reason_store: &mut self.reason_store,
                     brancher,
@@ -866,7 +867,7 @@ impl ConstraintSatisfactionSolver {
             "Decision should not already be assigned; double check the brancher"
         );
 
-        self.counters.engine_statistics.num_decisions += 1;
+        self.solver_statistics.engine_statistics.num_decisions += 1;
         self.assignments
             .post_predicate(decision_predicate, None)
             .expect("Decisions are expected not to fail.");
@@ -896,7 +897,7 @@ impl ConstraintSatisfactionSolver {
 
         let mut conflict_analysis_context = ConflictAnalysisContext {
             assignments: &mut self.assignments,
-            counters: &mut self.counters,
+            counters: &mut self.solver_statistics,
             solver_state: &mut self.state,
             reason_store: &mut self.reason_store,
             brancher,
@@ -961,11 +962,11 @@ impl ConstraintSatisfactionSolver {
                     .insert(!learned_nogood.predicates[0], step_id);
             }
 
-            self.counters
+            self.solver_statistics
                 .learned_clause_statistics
                 .num_unit_clauses_learned += (learned_nogood.predicates.len() == 1) as u64;
 
-            self.counters
+            self.solver_statistics
                 .learned_clause_statistics
                 .average_learned_clause_length
                 .add_term(learned_nogood.predicates.len() as u64);
@@ -988,6 +989,7 @@ impl ConstraintSatisfactionSolver {
             &mut self.propagators[Self::get_nogood_propagator_id()],
             learned_nogood.predicates,
             &mut context,
+            &mut self.solver_statistics,
             self.internal_parameters
                 .learning_options
                 .skip_nogood_learning,
@@ -998,11 +1000,12 @@ impl ConstraintSatisfactionSolver {
         nogood_propagator: &mut dyn Propagator,
         nogood: Vec<Predicate>,
         context: &mut PropagationContextMut,
+        statistics: &mut SolverStatistics,
         skip_nogood_learning: bool,
     ) {
         match nogood_propagator.downcast_mut::<NogoodPropagator>() {
             Some(nogood_propagator) => {
-                nogood_propagator.add_asserting_nogood(nogood, context, skip_nogood_learning)
+                nogood_propagator.add_asserting_nogood(nogood, context, statistics, skip_nogood_learning)
             }
             None => panic!("Provided propagator should be the nogood propagator"),
         }
@@ -1034,7 +1037,7 @@ impl ConstraintSatisfactionSolver {
             return;
         }
 
-        self.counters.engine_statistics.num_restarts += 1;
+        self.solver_statistics.engine_statistics.num_restarts += 1;
 
         ConstraintSatisfactionSolver::backtrack(
             &mut self.assignments,
@@ -1228,8 +1231,9 @@ impl ConstraintSatisfactionSolver {
             );
         }
         // Record statistics.
-        self.counters.engine_statistics.num_conflicts += self.state.is_conflicting() as u64;
-        self.counters.engine_statistics.num_propagations +=
+        self.solver_statistics.engine_statistics.num_conflicts +=
+            self.state.is_conflicting() as u64;
+        self.solver_statistics.engine_statistics.num_propagations +=
             self.assignments.num_trail_entries() as u64 - num_assigned_variables_old as u64;
         // Only check fixed point propagation if there was no reported conflict,
         // since otherwise the state may be inconsistent.
