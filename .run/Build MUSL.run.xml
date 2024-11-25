@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Build MUSL" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="buildProfileId" value="release" />
-    <option name="command" value="build --package pumpkin-solver --bin intsat_benchmarks --target x86_64-unknown-linux-musl" />
+    <option name="command" value="build --features debug-checks --package pumpkin-solver --bin intsat_benchmarks --target x86_64-unknown-linux-musl" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$" />
     <envs />
     <option name="emulateTerminal" value="true" />

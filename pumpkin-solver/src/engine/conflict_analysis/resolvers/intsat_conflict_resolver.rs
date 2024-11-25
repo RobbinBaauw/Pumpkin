@@ -22,7 +22,7 @@ use crate::pumpkin_assert_simple;
 use crate::variables::DomainId;
 
 #[derive(Debug, Default)]
-pub struct IntSatConflictResolver {
+pub(crate) struct IntSatConflictResolver {
     resolution_resolver: ResolutionResolver,
 }
 

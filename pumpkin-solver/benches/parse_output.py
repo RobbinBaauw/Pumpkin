@@ -50,9 +50,6 @@ class Outputs:
 
 @dataclass
 class RunData:
-    use_intsat: bool
-    skip_nogood_learning: bool
-
     stats: Stats
     outputs: Outputs
 
@@ -65,6 +62,9 @@ class RunResult:
     bench_version: int
     fzn_file_name: str
     fzn_file_path: Path
+
+    use_intsat: bool
+    skip_nogood_learning: bool
 
     stderr: Optional[str]
     stdout: Optional[str]
@@ -109,7 +109,13 @@ def parse_run_info(info_path: Path):
     file_path = Path(info_lines[1].split(": ")[1])
     file_name = file_path.stem
 
-    return version, file_path, file_name
+    _all_solutions = json.loads(info_lines[2].split(": ")[1])
+    _time_limit = json.loads(info_lines[3].split(": ")[1])
+
+    use_intsat = json.loads(info_lines[4].split(": ")[1])
+    skip_nogood_learning = json.loads(info_lines[5].split(": ")[1])
+
+    return version, file_path, file_name, use_intsat, skip_nogood_learning
 
 
 def parse_stderr(stderr_path: Path):
@@ -136,8 +142,6 @@ def parse_stat_file(stat_path: Path):
             raise RuntimeError(f"Cannot parse line {stat_line}")
 
         return json.loads(stat_res.group(1)), json.loads(stat_res.group(2)), stat_res.group(3), json.loads(stat_res.group(4))
-
-    use_intsat, skip_nogood_learning, _, _ = parse_stat_line(stats_lines[0])
 
     linear_leq_id_values = defaultdict(lambda: LinearLeq(0, 0))
     for line_i in range(0, len(stats_lines)):
@@ -175,7 +179,7 @@ def parse_stat_file(stat_path: Path):
                 case "number_of_propagations":
                     linear_leq_id_values[linear_leq_id].num_propagations = value
 
-    return use_intsat, skip_nogood_learning, Stats(
+    return Stats(
         num_decisions,
         num_conflicts,
         num_restarts,
@@ -246,8 +250,6 @@ def parse_intsat(stderr_path: Path):
                 intsat_learned_constraints_avg_length = 0
 
     return "intsat", file_name, file_path, None, None, RunData(
-        True,
-        True,
         Stats(
             num_decisions,
             num_conflicts,
@@ -278,26 +280,24 @@ def parse_results_dir(results_dir: Path):
 
             if (exp_dir / "intsat.pid.txt").exists():
                 version, file_name, file_path, stderr, stdout, run_data = parse_intsat(exp_dir / "stderr")
-                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, stderr, stdout, run_data))
+                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, True, True, stderr, stdout, run_data))
             else:
                 stderr = parse_stderr(exp_dir / "stderr")
                 stdout = parse_stdout(exp_dir / "stdout")
 
-                version, file_path, file_name = parse_run_info(exp_dir / "run_info")
+                version, file_path, file_name, use_intsat, skip_nogood_learning = parse_run_info(exp_dir / "run_info")
 
                 if stderr is None:
-                    use_intsat, skip_nogood_learning, stats = parse_stat_file(exp_dir / "run_stats")
+                    stats = parse_stat_file(exp_dir / "run_stats")
                     outputs = parse_outputs(exp_dir / "run_outputs")
-                    run_data = RunData(
-                        use_intsat,
-                        skip_nogood_learning,
-                        stats,
-                        outputs,
-                    )
+                    run_data = RunData(stats, outputs)
                 else:
                     run_data = None
 
-                results.append(RunResult(exit_code, wall_time, version, file_name, file_path, stderr, stdout, run_data))
+                results.append(RunResult(exit_code, wall_time, version,
+                                         file_name, file_path,
+                                         use_intsat, skip_nogood_learning,
+                                         stderr, stdout, run_data))
 
     return results
 

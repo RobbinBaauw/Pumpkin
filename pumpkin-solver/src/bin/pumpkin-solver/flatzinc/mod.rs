@@ -36,7 +36,7 @@ const MSG_UNKNOWN: &str = "=====UNKNOWN=====";
 const MSG_UNSATISFIABLE: &str = "=====UNSATISFIABLE=====";
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct FlatZincOptions {
+pub(crate) struct FlatZincOptions {
     /// If `true`, the solver will not strictly keep to the search annotations in the flatzinc.
     pub free_search: bool,
 
@@ -48,7 +48,7 @@ pub struct FlatZincOptions {
     pub cumulative_options: CumulativeOptions,
 }
 
-pub fn solve(
+pub(crate) fn solve(
     mut solver: Solver,
     instance: impl AsRef<Path>,
     time_limit: Option<Duration>,

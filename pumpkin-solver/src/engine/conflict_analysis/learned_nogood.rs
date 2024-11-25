@@ -2,7 +2,7 @@ use crate::engine::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::predicates::Predicate;
 
 #[derive(Clone, Debug)]
-pub struct LearnedConstraint {
+pub(crate) struct LearnedConstraint {
     pub(crate) constraint: LinearLessOrEqual,
     pub(crate) backjump_level: usize,
 }
@@ -14,7 +14,7 @@ pub(crate) struct LearnedNogood {
 }
 
 #[derive(Clone, Debug)]
-pub enum ConflictResolveResult {
+pub(crate) enum ConflictResolveResult {
     Nogood(LearnedNogood),
     Constraint(LearnedConstraint),
 }

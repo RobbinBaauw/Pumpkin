@@ -20,21 +20,21 @@ mem_per_cpu = 16384
 #binary = "./intsat_benchmarks"
 #arguments = ["--log-to-files", "--time-limit", "3600000"]
 
-#[program.intsat-learn]
-#binary = "./intsat_benchmarks"
-#arguments = ["--log-to-files", "--use-intsat", "--time-limit", "3600000"]
-
-#[program.intsat-nolearn]
-#binary = "./intsat_benchmarks"
-#arguments = ["--log-to-files", "--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
-
-[program.intsat-learn-all-solutions]
+[program.intsat-learn]
 binary = "./intsat_benchmarks"
-arguments = ["--log-to-files", "--all-solutions", "--use-intsat", "--time-limit", "3600000"]
+arguments = ["--log-to-files", "--use-intsat", "--time-limit", "3600000"]
 
-[program.intsat-nolearn-all-solutions]
+[program.intsat-nolearn]
 binary = "./intsat_benchmarks"
-arguments = ["--log-to-files", "--all-solutions", "--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
+arguments = ["--log-to-files", "--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
+
+#[program.intsat-learn-all-solutions]
+#binary = "./intsat_benchmarks"
+#arguments = ["--log-to-files", "--all-solutions", "--use-intsat", "--time-limit", "3600000"]
+#
+#[program.intsat-nolearn-all-solutions]
+#binary = "./intsat_benchmarks"
+#arguments = ["--log-to-files", "--all-solutions", "--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
 
 #[program.intsat]
 #binary = "./intsat_og"
