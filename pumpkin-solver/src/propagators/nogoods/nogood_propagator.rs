@@ -25,8 +25,10 @@ use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::propagation::ReadDomains;
 use crate::engine::reason::Reason;
+use crate::engine::reason::ReasonStore;
 use crate::engine::variables::DomainId;
 use crate::engine::Assignments;
+use crate::engine::ConstraintSatisfactionSolver;
 use crate::engine::EventSink;
 use crate::engine::IntDomainEvent;
 use crate::engine::SolverStatistics;
@@ -89,6 +91,40 @@ impl NogoodPropagator {
             ..Default::default()
         }
     }
+
+    /// Determines whether the nogood (pointed to by `id`) is propagating using the following
+    /// reasoning:
+    ///
+    /// - The predicate at position 0 is falsified; this is one of the conventions of the nogood
+    ///   propagator
+    /// - The reason for the predicate is the nogood propagator
+    fn is_nogood_propagating(
+        &self,
+        context: PropagationContext,
+        reason_store: &ReasonStore,
+        id: NogoodId,
+    ) -> bool {
+        if context.is_predicate_falsified(self.nogoods[id].predicates[0]) {
+            let trail_position = context
+                .assignments()
+                .get_trail_position(&!self.nogoods[id].predicates[0])
+                .unwrap();
+            let trail_entry = context.assignments().get_trail_entry(trail_position);
+            if let Some(reason_ref) = trail_entry.reason {
+                let propagator_id = reason_store.get_propagator(reason_ref);
+                let code = reason_store.get_lazy_code(reason_ref);
+
+                // We check whether the predicate was propagated by the nogood propagator first
+                let propagated_by_nogood_propagator =
+                    propagator_id == ConstraintSatisfactionSolver::get_nogood_propagator_id();
+                // Then we check whether the lazy reason for the propagation was this particular
+                // nogood
+                let code_matches_id = code.is_none() || *code.unwrap() == id.id as u64;
+                return propagated_by_nogood_propagator && code_matches_id;
+            }
+        }
+        false
+    }
 }
 
 impl Propagator for NogoodPropagator {
@@ -104,6 +140,10 @@ impl Propagator for NogoodPropagator {
 
     fn propagate(&mut self, mut context: PropagationContextMut) -> Result<(), Inconsistency> {
         pumpkin_assert_advanced!(self.debug_is_properly_watched());
+
+        // First we perform nogood management to ensure that the database does not grow excessively
+        // large with "bad" nogoods
+        self.clean_up_learned_nogoods_if_needed(context.as_readonly(), context.reason_store);
 
         if self.watch_lists.len() <= context.assignments().num_domains() as usize {
             self.watch_lists.resize(
@@ -706,10 +746,6 @@ impl Propagator for NogoodPropagator {
     fn synchronise(&mut self, context: PropagationContext) {
         self.last_index_on_trail = context.assignments().trail.len() - 1;
         let _ = self.enqueued_updates.drain();
-
-        if context.assignments.get_decision_level() == 0 {
-            self.clean_up_learned_nogoods_if_needed(context);
-        }
     }
 
     fn notify(
@@ -764,6 +800,7 @@ impl Propagator for NogoodPropagator {
     /// about the LBD and activity of the nogood, which is used when cleaning up nogoods.
     fn lazy_explanation(&mut self, code: u64, assignments: &Assignments) -> &[Predicate] {
         let id = NogoodId { id: code as u32 };
+
         // Update the LBD and activity of the nogood, if appropriate.
         //
         // Note that low lbd nogoods are kept permanently, so these are not updated.
@@ -1089,14 +1126,18 @@ impl NogoodPropagator {
 /// Nogood management
 impl NogoodPropagator {
     /// Removes nogoods if there are too many nogoods with a "high" LBD
-    fn clean_up_learned_nogoods_if_needed(&mut self, context: PropagationContext) {
+    fn clean_up_learned_nogoods_if_needed(
+        &mut self,
+        context: PropagationContext,
+        reason_store: &ReasonStore,
+    ) {
         // Only remove learned nogoods if there are too many.
         if self.learned_nogood_ids.high_lbd.len() > self.parameters.limit_num_high_lbd_nogoods {
             // The procedure is divided into two parts (for simplicity of implementation).
             //  1. Promote nogoods that are in the high lbd group but got updated to a low lbd.
             //  2. Remove roughly half of the nogoods that have high lbd.
             self.promote_high_lbd_nogoods();
-            self.remove_high_lbd_nogoods(context);
+            self.remove_high_lbd_nogoods(context, reason_store);
         }
     }
 
@@ -1120,12 +1161,7 @@ impl NogoodPropagator {
     ///
     /// The idea is that these are likely poor quality nogoods and the overhead of propagating them
     /// is not worth it.
-    fn remove_high_lbd_nogoods(&mut self, context: PropagationContext) {
-        assert!(
-            context.get_decision_level() == 0,
-            "We only consider removing high LBD nogoods at the root-level for now"
-        );
-
+    fn remove_high_lbd_nogoods(&mut self, context: PropagationContext, reason_store: &ReasonStore) {
         // First we sort the high LBD nogoods based on non-increasing "quality"
         self.sort_high_lbd_nogoods_by_quality_better_first();
 
@@ -1146,6 +1182,10 @@ impl NogoodPropagator {
             // Protected clauses are skipped for one clean up iteration.
             if self.nogoods[id].is_protected {
                 self.nogoods[id].is_protected = false;
+                continue;
+            }
+
+            if self.is_nogood_propagating(context, reason_store, id) {
                 continue;
             }
 
