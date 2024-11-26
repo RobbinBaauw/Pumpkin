@@ -81,10 +81,18 @@ where
             });
     }
 
-    fn create_conflict_reason(&self, context: PropagationContext) -> PropositionalConjunction {
+    fn create_conflict_reason(&self, context: PropagationContext, skip_i: Option<usize>) -> PropositionalConjunction {
         self.x
             .iter()
-            .map(|var| predicate![var >= context.lower_bound(var)])
+            .enumerate()
+            .filter_map(|(j, var)| {
+                if let Some(i) = skip_i {
+                    if i == j {
+                        return None;
+                    }
+                }
+                Some(predicate![var >= context.lower_bound(var)])
+            })
             .collect()
     }
 
@@ -138,7 +146,7 @@ where
         context: PropagationContext,
     ) -> Option<PropositionalConjunction> {
         if (self.c as i64) < self.lower_bound_left_hand_side {
-            Some(self.create_conflict_reason(context))
+            Some(self.create_conflict_reason(context, None))
         } else {
             None
         }
@@ -214,7 +222,7 @@ where
                     // This means that the lower-bounds of the current variables will always be
                     // higher than the right-hand side (with a maximum value of i32). We thus
                     // return a conflict
-                    return Err(self.create_conflict_reason(context.as_readonly()).into());
+                    return Err(self.create_conflict_reason(context.as_readonly(), None).into());
                 }
                 Err(_) => {
                     // We cannot fit the `lower_bound_left_hand_side` into an i32 due to an
@@ -226,22 +234,34 @@ where
             };
 
         for (i, x_i) in self.x.iter().enumerate() {
-            let bound = self.c - (lower_bound_left_hand_side - context.lower_bound(x_i));
+            // We still need to check lb_lhs being i32 such that we can be sure
+            // this will not overflow.
+            let bound_i64 = (self.c as i64) - (lower_bound_left_hand_side as i64 - context.lower_bound(x_i) as i64);
+            let bound =
+                match TryInto::<i32>::try_into(bound_i64) {
+                    Ok(bound) => bound,
+                    Err(_) if bound_i64.is_positive() => {
+                        // We cannot fit the `bound` into an i32 due to an
+                        // overflow (hence the check that the bound is positive)
+                        //
+                        // This means that the upper-bound of the current variable will never be
+                        // higher than the bound (with a maximum value of i32). This means
+                        // that the upper-bound doesn't have to be updated.
+                        continue;
+                    }
+                    Err(_) => {
+                        // We cannot fit the `bound` into an i32 due to an
+                        // underflow
+                        //
+                        // This means that the upper-bound of the current variable is always higher
+                        // than this bound. This means that there is a conflict, as the upper
+                        // bound would have to be set to i32::MIN.
+                        return Err(self.create_conflict_reason(context.as_readonly(), Some(i)).into());
+                    }
+                };
 
             if context.upper_bound(x_i) > bound {
-                let reason: PropositionalConjunction = self
-                    .x
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(j, x_j)| {
-                        if j != i {
-                            Some(predicate![x_j >= context.lower_bound(x_j)])
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
+                let reason = self.create_conflict_reason(context.as_readonly(), Some(i));
                 self.statistics.number_of_propagations += 1;
                 context.set_upper_bound(x_i, bound, reason)?;
             }
@@ -284,7 +304,7 @@ where
                 // This means that the lower-bounds of the current variables will always be
                 // higher than the right-hand side (with a maximum value of i32). We thus
                 // return a conflict
-                return Err(self.create_conflict_reason(context.as_readonly()).into());
+                return Err(self.create_conflict_reason(context.as_readonly(), None).into());
             }
             Err(_) => {
                 // We cannot fit the `lower_bound_left_hand_side` into an i32 due to an
@@ -296,22 +316,34 @@ where
         };
 
         for (i, x_i) in self.x.iter().enumerate() {
-            let bound = self.c - (lower_bound_left_hand_side - context.lower_bound(x_i));
+            // We still need to check lb_lhs being i32 such that we can be sure
+            // this will not overflow.
+            let bound_i64 = (self.c as i64) - (lower_bound_left_hand_side as i64 - context.lower_bound(x_i) as i64);
+            let bound =
+                match TryInto::<i32>::try_into(bound_i64) {
+                    Ok(bound) => bound,
+                    Err(_) if bound_i64.is_positive() => {
+                        // We cannot fit the `bound` into an i32 due to an
+                        // overflow (hence the check that the bound is positive)
+                        //
+                        // This means that the upper-bound of the current variable will never be
+                        // higher than the bound (with a maximum value of i32). This means
+                        // that the upper-bound doesn't have to be updated.
+                        continue;
+                    }
+                    Err(_) => {
+                        // We cannot fit the `bound` into an i32 due to an
+                        // underflow
+                        //
+                        // This means that the upper-bound of the current variable is always higher
+                        // than this bound. This means that there is a conflict, as the upper
+                        // bound would have to be set to i32::MIN.
+                        return Err(self.create_conflict_reason(context.as_readonly(), Some(i)).into());
+                    }
+                };
 
             if context.upper_bound(x_i) > bound {
-                let reason: PropositionalConjunction = self
-                    .x
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(j, x_j)| {
-                        if j != i {
-                            Some(predicate![x_j >= context.lower_bound(x_j)])
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
+                let reason = self.create_conflict_reason(context.as_readonly(), Some(i));
                 context.set_upper_bound(x_i, bound, reason)?;
             }
         }

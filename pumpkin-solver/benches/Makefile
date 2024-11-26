@@ -6,7 +6,7 @@ sync_binary_and_config:
 	rsync --stats --progress ./intsat_benchmarks ./intsat_og ./gourd.toml tu-delftblue:~/pumpkin
 
 sync_results_data:
-	rsync -r --stats --progress tu-delftblue:~/pumpkin/experiments ./results
+	rsync -r --stats --progress --exclude 'gourd_*.out' --exclude 'gourd_*.err' tu-delftblue:~/pumpkin/experiments ./results
 
 show_errored_files:
 	find -type f -name stderr -size +0 | xargs tail -n +1

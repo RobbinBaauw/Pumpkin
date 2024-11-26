@@ -23,6 +23,8 @@ class LinearLeq:
 
 @dataclass
 class Stats:
+    objective: Optional[int]
+
     num_decisions: int
     num_conflicts: int
     num_restarts: int
@@ -87,6 +89,12 @@ class RunResult:
         if self.run_data.outputs.result == Result.UNSAT:
             return "U"
 
+    def failed(self):
+        return ((self.exit_code != 0) or
+                (self.wall_time > 3600) or
+                (self.run_data is None) or
+                (self.run_data.outputs.result == Result.UNKNOWN))
+
 
 Results = Dict[str, Dict[str, Optional[RunResult]]]
 
@@ -143,6 +151,7 @@ def parse_stat_file(stat_path: Path):
 
         return json.loads(stat_res.group(1)), json.loads(stat_res.group(2)), stat_res.group(3), json.loads(stat_res.group(4))
 
+    objective = None
     linear_leq_id_values = defaultdict(lambda: LinearLeq(0, 0))
     for line_i in range(0, len(stats_lines)):
         line_val = stats_lines[line_i]
@@ -152,6 +161,8 @@ def parse_stat_file(stat_path: Path):
         _, _, stat, value = parse_stat_line(line_val)
 
         match stat:
+            case "objective":
+                objective = value
             case "_engine_statistics_num_decisions":
                 num_decisions = value
             case "_engine_statistics_num_conflicts":
@@ -180,6 +191,7 @@ def parse_stat_file(stat_path: Path):
                     linear_leq_id_values[linear_leq_id].num_propagations = value
 
     return Stats(
+        objective,
         num_decisions,
         num_conflicts,
         num_restarts,
@@ -249,8 +261,9 @@ def parse_intsat(stderr_path: Path):
             except ValueError:
                 intsat_learned_constraints_avg_length = 0
 
-    return "intsat", file_name, file_path, None, None, RunData(
+    return -1, file_name, file_path, None, None, RunData(
         Stats(
+            0,
             num_decisions,
             num_conflicts,
             num_restarts,
@@ -319,7 +332,7 @@ def update_results(results: Results, prog_results: List[RunResult], prog_name: s
 
 
 def parse_bench_results():
-    intsat_results = parse_results_dir(BASE_DIR / "4" / "0")
+    intsat_results = parse_results_dir(BASE_DIR / "16" / "0")
     resolution_results = parse_results_dir(BASE_DIR / "4" / "1")
 
     assert all(map(lambda r: r.run_data is None or (not r.run_data.use_intsat and not r.run_data.skip_nogood_learning), resolution_results))
@@ -362,11 +375,7 @@ def parse_examples_results():
 
 
 def did_fail(res: Optional[RunResult]):
-    return ((res is None) or
-            (res.exit_code != 0) or
-            (res.wall_time > 3600) or
-            (res.run_data is None) or
-            (res.run_data.outputs.result == Result.UNKNOWN))
+    return (res is None) or (res.failed())
 
 
 def examples_results_to_table(results: Results):
@@ -413,6 +422,10 @@ def examples_results_to_table(results: Results):
         conf_values = [res_conflicts, intsat_skip_conflicts, intsat_conflicts, intsat_og_conflicts]
         conf_values = list(filter(lambda x: x is not None, conf_values))
 
+        # Skip problems for which all solvers resulted in 10 conflicts or less
+        if all(map(lambda c: c < 10, conf_values)):
+            continue
+
         best_conf = min(conf_values)
         all_conf_same = len(conf_values) > 1 and all(x == conf_values[0] for x in conf_values)
 
@@ -438,9 +451,9 @@ def table_to_latex(table):
     headers = {
         "": ["Problem"],
         "Resolution": ["time", "\# conf"],
-        "IntSat": ["time", "\# conf", "\# lear constr", "\# fallb", "\# learn prop"],
-        "IntSat skip nogood learning": ["time", "\# conf", "\# lear constr", "\# fallb", "\# learn prop"],
-        "IntSat OG": ["time", "\# conf", "\# lear constr"],
+        "IntSat": ["time", "\# conf", "\# LC", "\# FB", "\# prop"],
+        "IntSat skip nogood learning": ["time", "\# conf", "\# LC", "\# FB", "\# prop"],
+        "IntSat OG": ["time", "\# conf", "\# LC"],
     }
     rendered = template.render({
         "headers": headers,
@@ -451,12 +464,12 @@ def table_to_latex(table):
 
 
 if __name__ == "__main__":
-    parse_examples_results()
-    with open('results_out_examples.pkl', 'rb') as results_file:
-        results = pickle.load(results_file)
-    table = examples_results_to_table(results)
-    print(table_to_latex(table))
-
-    # parse_bench_results()
-    # with open('results_out_bench.pkl', 'rb') as results_file:
+    # parse_examples_results()
+    # with open('results_out_examples.pkl', 'rb') as results_file:
     #     results = pickle.load(results_file)
+    # table = examples_results_to_table(results)
+    # print(table_to_latex(table))
+
+    parse_bench_results()
+    with open('results_out_bench.pkl', 'rb') as results_file:
+        results = pickle.load(results_file)
