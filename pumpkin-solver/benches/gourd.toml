@@ -16,13 +16,13 @@ cpus = 1
 mem_per_cpu = 16384
 
 [program]
-#[program.resolution]
-#binary = "./intsat_benchmarks"
-#arguments = ["--log-to-files", "--time-limit", "3600000"]
-
-[program.intsat-learn]
+[program.resolution]
 binary = "./intsat_benchmarks"
-arguments = ["--log-to-files", "--use-intsat", "--time-limit", "3600000"]
+arguments = ["--log-to-files", "--time-limit", "3600000"]
+
+#[program.intsat-learn]
+#binary = "./intsat_benchmarks"
+#arguments = ["--log-to-files", "--use-intsat", "--time-limit", "3600000"]
 
 #[program.intsat-nolearn]
 #binary = "./intsat_benchmarks"

@@ -54,8 +54,6 @@ struct Args {
     time_limit: Option<u64>,
 }
 
-static STAT_HEADER: OnceLock<String> = OnceLock::new();
-
 fn open_file(name: &str) -> Box<dyn Write + Send + Sync> {
     let f = OpenOptions::new()
         .write(true)
@@ -98,15 +96,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     writeln!(&mut general_logger, "Skip nogood learning: {:?}", args.skip_nogood_learning)?;
     writeln!(&mut general_logger, "Fixed search: {:?}", args.fixed_search)?;
 
-    let stat_header = STAT_HEADER.get_or_init(|| {
-        format!(
-            "$stat$-I{:?}-SL{:?}",
-            args.use_intsat, args.skip_nogood_learning
-        )
-    });
-
     // Configure logging
-    configure_statistic_logging(stat_header, None, None, Some(stats_logger));
+    configure_statistic_logging("$stat$", None, None, Some(stats_logger));
 
     let level_filter = if args.verbose {
         LevelFilter::Debug

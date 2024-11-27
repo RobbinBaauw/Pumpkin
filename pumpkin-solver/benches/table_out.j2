@@ -1,9 +1,9 @@
 \centering
 \begin{tabular}{
-    {% for child_heads in headers.values() -%}
+    |{% for child_heads in headers.values() -%}
         {{ 'c' * child_heads|length }}
         {%- if not loop.last %} | {% endif -%}
-    {%- endfor -%}
+    {%- endfor -%}|
 }
 \hline
 
@@ -31,11 +31,18 @@
         {%- set val = col[0] if col is tuple else col -%}
         {%- set val_format = (val if val is not none else "-") | replace("_", "\_") -%}
 
-        {%- if col is tuple and col[1] -%}
-        \textbf{ {{ val_format }} }
-        {%- else -%}
-        {{ val_format }}
+        {%- if col is tuple -%}
+            {%- if "text-bold" in col[1] -%} \textbf{ {%- endif -%}
+            {%- if "color-" in col[1] -%} \textcolor{ {{- col[1].split('-')[1] -}} }{ {%- endif -%}
         {%- endif -%}
+
+        {{ val_format }}
+
+        {%- if col is tuple -%}
+            {%- if "text-bold" in col[1] -%} } {%- endif -%}
+            {%- if "color-" in col[1] -%} } {%- endif -%}
+        {%- endif -%}
+
         {% if not loop.last %} & {% endif %}
     {%- endfor -%} \\
 {% endfor %}
