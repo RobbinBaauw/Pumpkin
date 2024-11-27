@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry::Occupied;
 use std::collections::HashMap;
-
+use itertools::Itertools;
 use log::debug;
 
 use crate::basic_types::moving_averages::MovingAverage;
@@ -127,7 +127,7 @@ impl IntSatConflictResolver {
 
         CutResult::Success {
             inequality: LinearLessOrEqual {
-                lhs: new_lhs.into_iter().collect(),
+                lhs: new_lhs.into_iter().sorted_by_key(|(id, _)| id.id).collect(),
                 rhs: new_rhs,
             },
             skip_early_backjump,
