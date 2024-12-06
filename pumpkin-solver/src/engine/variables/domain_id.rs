@@ -1,5 +1,11 @@
+use std::ops::Add;
+use std::ops::Mul;
+use std::ops::Neg;
+use std::ops::Sub;
+
 use enumset::EnumSet;
 
+use super::FlattenedVariable;
 use super::TransformableVariable;
 use crate::containers::StorageKey;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
@@ -106,6 +112,14 @@ impl IntegerVariable for DomainId {
     fn unpack_event(&self, event: OpaqueDomainEvent) -> IntDomainEvent {
         event.unwrap()
     }
+
+    fn flatten(&self) -> FlattenedVariable {
+        FlattenedVariable::new(*self, 1, 0)
+    }
+
+    fn get_domain_id(&self) -> DomainId {
+        *self
+    }
 }
 
 impl TransformableVariable<AffineView<DomainId>> for DomainId {
@@ -115,6 +129,38 @@ impl TransformableVariable<AffineView<DomainId>> for DomainId {
 
     fn offset(&self, offset: i32) -> AffineView<DomainId> {
         AffineView::new(*self, 1, offset)
+    }
+}
+
+impl Mul<i32> for DomainId {
+    type Output = AffineView<DomainId>;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        self.scaled(rhs)
+    }
+}
+
+impl Add<i32> for DomainId {
+    type Output = AffineView<DomainId>;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        self.offset(rhs)
+    }
+}
+
+impl Sub<i32> for DomainId {
+    type Output = AffineView<DomainId>;
+
+    fn sub(self, rhs: i32) -> Self::Output {
+        self.offset(-rhs)
+    }
+}
+
+impl Neg for DomainId {
+    type Output = AffineView<DomainId>;
+
+    fn neg(self) -> Self::Output {
+        self.scaled(-1)
     }
 }
 

@@ -77,6 +77,7 @@
 //! 118–132.
 
 mod explanation_context;
+pub(crate) mod linear_less_or_equal;
 pub(crate) mod local_id;
 pub(crate) mod propagation_context;
 pub(crate) mod propagator;

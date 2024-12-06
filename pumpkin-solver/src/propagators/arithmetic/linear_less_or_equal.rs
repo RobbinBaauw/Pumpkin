@@ -1,5 +1,9 @@
+use itertools::Itertools;
+
 use crate::basic_types::PropagationStatusCP;
 use crate::basic_types::PropositionalConjunction;
+use crate::create_statistics_struct;
+use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::cp::propagation::ReadDomains;
 use crate::engine::domain_events::DomainEvents;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
@@ -12,6 +16,13 @@ use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::variables::IntegerVariable;
 use crate::predicate;
 use crate::pumpkin_assert_simple;
+use crate::statistics::Statistic;
+use crate::statistics::StatisticLogger;
+
+create_statistics_struct!(LinearLessOrEqualStatistics {
+    number_of_executions: u64,
+    number_of_propagations: u64,
+});
 
 /// Propagator for the constraint `reif => \sum x_i <= c`.
 #[derive(Clone, Debug)]
@@ -23,9 +34,13 @@ pub(crate) struct LinearLessOrEqualPropagator<Var> {
     lower_bound_left_hand_side: i64,
     /// The value at index `i` is the bound for `x[i]`.
     current_bounds: Box<[i32]>,
+
+    is_learned: bool,
+    errored_initially: bool,
+    statistics: LinearLessOrEqualStatistics,
 }
 
-impl<Var> LinearLessOrEqualPropagator<Var>
+impl<Var: 'static> LinearLessOrEqualPropagator<Var>
 where
     Var: IntegerVariable,
 {
@@ -38,7 +53,16 @@ where
             c,
             lower_bound_left_hand_side: 0,
             current_bounds,
+            is_learned: false,
+            errored_initially: false,
+            statistics: LinearLessOrEqualStatistics::default(),
         }
+    }
+
+    pub(crate) fn new_learned(x: Box<[Var]>, c: i32) -> Self {
+        let mut new = Self::new(x, c);
+        new.is_learned = true;
+        new
     }
 
     /// Recalculates the incremental state from scratch.
@@ -57,11 +81,36 @@ where
             });
     }
 
-    fn create_conflict_reason(&self, context: PropagationContext) -> PropositionalConjunction {
+    fn create_conflict_reason(
+        &self,
+        context: PropagationContext,
+        skip_i: Option<usize>,
+    ) -> PropositionalConjunction {
         self.x
             .iter()
-            .map(|var| predicate![var >= context.lower_bound(var)])
+            .enumerate()
+            .filter_map(|(j, var)| {
+                if let Some(i) = skip_i {
+                    if i == j {
+                        return None;
+                    }
+                }
+                Some(predicate![var >= context.lower_bound(var)])
+            })
             .collect()
+    }
+
+    fn initialise_base(
+        &mut self,
+        context: &mut PropagatorInitialisationContext,
+    ) -> Result<(), PropositionalConjunction> {
+        self.recalculate_incremental_state(context.as_readonly());
+
+        if let Some(conjunction) = self.detect_inconsistency(context.as_readonly()) {
+            Err(conjunction)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -81,13 +130,22 @@ where
             );
         });
 
-        self.recalculate_incremental_state(context.as_readonly());
+        self.initialise_base(context)
+    }
 
-        if let Some(conjunction) = self.detect_inconsistency(context.as_readonly()) {
-            Err(conjunction)
-        } else {
-            Ok(())
-        }
+    fn initialise_at_non_root(
+        &mut self,
+        context: &mut PropagatorInitialisationContext,
+    ) -> Result<(), PropositionalConjunction> {
+        self.x.iter().enumerate().for_each(|(i, x_i)| {
+            let _ = context.register_unchecked(
+                x_i.clone(),
+                DomainEvents::LOWER_BOUND,
+                LocalId::from(i as u32),
+            );
+        });
+
+        self.initialise_base(context)
     }
 
     fn detect_inconsistency(
@@ -95,7 +153,7 @@ where
         context: PropagationContext,
     ) -> Option<PropositionalConjunction> {
         if (self.c as i64) < self.lower_bound_left_hand_side {
-            Some(self.create_conflict_reason(context))
+            Some(self.create_conflict_reason(context, None))
         } else {
             None
         }
@@ -136,8 +194,27 @@ where
         "LinearLeq"
     }
 
+    fn linear_inequality_explanation(&self) -> Option<LinearLessOrEqual> {
+        let flat_vars = self.x.iter().map(|var| var.flatten()).collect_vec();
+
+        let lhs = flat_vars
+            .iter()
+            .map(|var| (var.id, var.scale))
+            .collect_vec();
+
+        let var_offsets = flat_vars.iter().map(|var| var.offset).sum::<i32>();
+        let rhs = self.c - var_offsets;
+
+        Some(LinearLessOrEqual { lhs, rhs })
+    }
+
     fn propagate(&mut self, mut context: PropagationContextMut) -> PropagationStatusCP {
+        self.statistics.number_of_executions += 1;
+
         if let Some(conjunction) = self.detect_inconsistency(context.as_readonly()) {
+            if self.statistics.number_of_executions == 1 {
+                self.errored_initially = true;
+            }
             return Err(conjunction.into());
         }
 
@@ -152,7 +229,9 @@ where
                     // This means that the lower-bounds of the current variables will always be
                     // higher than the right-hand side (with a maximum value of i32). We thus
                     // return a conflict
-                    return Err(self.create_conflict_reason(context.as_readonly()).into());
+                    return Err(self
+                        .create_conflict_reason(context.as_readonly(), None)
+                        .into());
                 }
                 Err(_) => {
                     // We cannot fit the `lower_bound_left_hand_side` into an i32 due to an
@@ -164,27 +243,55 @@ where
             };
 
         for (i, x_i) in self.x.iter().enumerate() {
-            let bound = self.c - (lower_bound_left_hand_side - context.lower_bound(x_i));
+            // We still need to check lb_lhs being i32 such that we can be sure
+            // this will not overflow.
+            let bound_i64 = (self.c as i64)
+                - (lower_bound_left_hand_side as i64 - context.lower_bound(x_i) as i64);
+            let bound = match TryInto::<i32>::try_into(bound_i64) {
+                Ok(bound) => bound,
+                Err(_) if bound_i64.is_positive() => {
+                    // We cannot fit the `bound` into an i32 due to an
+                    // overflow (hence the check that the bound is positive)
+                    //
+                    // This means that the upper-bound of the current variable will never be
+                    // higher than the bound (with a maximum value of i32). This means
+                    // that the upper-bound doesn't have to be updated.
+                    continue;
+                }
+                Err(_) => {
+                    // We cannot fit the `bound` into an i32 due to an
+                    // underflow
+                    //
+                    // This means that the upper-bound of the current variable is always higher
+                    // than this bound. This means that there is a conflict, as the upper
+                    // bound would have to be set to i32::MIN.
+                    return Err(self
+                        .create_conflict_reason(context.as_readonly(), Some(i))
+                        .into());
+                }
+            };
 
             if context.upper_bound(x_i) > bound {
-                let reason: PropositionalConjunction = self
-                    .x
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(j, x_j)| {
-                        if j != i {
-                            Some(predicate![x_j >= context.lower_bound(x_j)])
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
+                let reason = self.create_conflict_reason(context.as_readonly(), Some(i));
+                self.statistics.number_of_propagations += 1;
                 context.set_upper_bound(x_i, bound, reason)?;
             }
         }
 
+        pumpkin_assert_simple!(
+            !self.is_learned
+                || self.errored_initially
+                || self.statistics.number_of_propagations >= 1,
+            "A newly learned constraint should always propagate!"
+        );
+
         Ok(())
+    }
+
+    fn log_statistics(&self, statistic_logger: StatisticLogger) {
+        if self.is_learned {
+            self.statistics.log(statistic_logger);
+        }
     }
 
     fn debug_propagate_from_scratch(
@@ -208,7 +315,9 @@ where
                 // This means that the lower-bounds of the current variables will always be
                 // higher than the right-hand side (with a maximum value of i32). We thus
                 // return a conflict
-                return Err(self.create_conflict_reason(context.as_readonly()).into());
+                return Err(self
+                    .create_conflict_reason(context.as_readonly(), None)
+                    .into());
             }
             Err(_) => {
                 // We cannot fit the `lower_bound_left_hand_side` into an i32 due to an
@@ -220,22 +329,36 @@ where
         };
 
         for (i, x_i) in self.x.iter().enumerate() {
-            let bound = self.c - (lower_bound_left_hand_side - context.lower_bound(x_i));
+            // We still need to check lb_lhs being i32 such that we can be sure
+            // this will not overflow.
+            let bound_i64 = (self.c as i64)
+                - (lower_bound_left_hand_side as i64 - context.lower_bound(x_i) as i64);
+            let bound = match TryInto::<i32>::try_into(bound_i64) {
+                Ok(bound) => bound,
+                Err(_) if bound_i64.is_positive() => {
+                    // We cannot fit the `bound` into an i32 due to an
+                    // overflow (hence the check that the bound is positive)
+                    //
+                    // This means that the upper-bound of the current variable will never be
+                    // higher than the bound (with a maximum value of i32). This means
+                    // that the upper-bound doesn't have to be updated.
+                    continue;
+                }
+                Err(_) => {
+                    // We cannot fit the `bound` into an i32 due to an
+                    // underflow
+                    //
+                    // This means that the upper-bound of the current variable is always higher
+                    // than this bound. This means that there is a conflict, as the upper
+                    // bound would have to be set to i32::MIN.
+                    return Err(self
+                        .create_conflict_reason(context.as_readonly(), Some(i))
+                        .into());
+                }
+            };
 
             if context.upper_bound(x_i) > bound {
-                let reason: PropositionalConjunction = self
-                    .x
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(j, x_j)| {
-                        if j != i {
-                            Some(predicate![x_j >= context.lower_bound(x_j)])
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
+                let reason = self.create_conflict_reason(context.as_readonly(), Some(i));
                 context.set_upper_bound(x_i, bound, reason)?;
             }
         }

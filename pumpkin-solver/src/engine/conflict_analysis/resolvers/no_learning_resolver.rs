@@ -1,6 +1,6 @@
 use super::ConflictResolver;
 use crate::engine::conflict_analysis::ConflictAnalysisContext;
-use crate::engine::conflict_analysis::LearnedNogood;
+use crate::engine::conflict_analysis::ConflictResolveResult;
 use crate::pumpkin_assert_simple;
 
 /// Resolve conflicts by backtracking one decision level trying the opposite of the last decision.
@@ -11,16 +11,16 @@ impl ConflictResolver for NoLearningResolver {
     fn resolve_conflict(
         &mut self,
         _context: &mut ConflictAnalysisContext,
-    ) -> Option<LearnedNogood> {
+    ) -> Option<ConflictResolveResult> {
         None
     }
 
     fn process(
         &mut self,
         context: &mut ConflictAnalysisContext,
-        learned_nogood: &Option<LearnedNogood>,
+        resolve_result: &Option<ConflictResolveResult>,
     ) -> Result<(), ()> {
-        pumpkin_assert_simple!(learned_nogood.is_none());
+        pumpkin_assert_simple!(resolve_result.is_none());
 
         if let Some(last_decision) = context.find_last_decision() {
             context.backtrack(context.assignments.get_decision_level() - 1);

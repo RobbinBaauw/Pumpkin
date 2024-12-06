@@ -12,6 +12,7 @@ use rand::SeedableRng;
 
 use super::conflict_analysis::AnalysisMode;
 use super::conflict_analysis::ConflictAnalysisContext;
+use super::conflict_analysis::IntSatConflictResolver;
 use super::conflict_analysis::LearnedNogood;
 use super::conflict_analysis::NoLearningResolver;
 use super::conflict_analysis::SemanticMinimiser;
@@ -34,6 +35,8 @@ use crate::basic_types::SolutionReference;
 use crate::basic_types::StoredConflictInfo;
 use crate::branching::Brancher;
 use crate::branching::SelectionContext;
+use crate::engine::conflict_analysis::ConflictResolveResult::Constraint;
+use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::engine::conflict_analysis::ConflictResolver as Resolver;
 use crate::engine::cp::PropagatorQueue;
 use crate::engine::cp::WatchListCP;
@@ -178,6 +181,7 @@ pub enum ConflictResolver {
     NoLearning,
     #[default]
     UIP,
+    IntSat,
 }
 
 /// Options for the [`Solver`] which determine how it behaves.
@@ -378,10 +382,15 @@ impl ConstraintSatisfactionSolver {
             .resolve_conflict(&mut conflict_analysis_context)
             .expect("Should have a nogood");
 
-        let _ = self
-            .internal_parameters
-            .proof_log
-            .log_learned_clause(result.predicates, &self.variable_names);
+        match result {
+            Nogood(learned_nogood) => {
+                let _ = self
+                    .internal_parameters
+                    .proof_log
+                    .log_learned_clause(learned_nogood.predicates, &self.variable_names);
+            }
+            Constraint(_) => todo!("Not implemented"),
+        }
     }
 }
 
@@ -408,6 +417,7 @@ impl ConstraintSatisfactionSolver {
             conflict_resolver: match solver_options.conflict_resolver {
                 ConflictResolver::NoLearning => Box::new(NoLearningResolver),
                 ConflictResolver::UIP => Box::new(ResolutionResolver::default()),
+                ConflictResolver::IntSat => Box::new(IntSatConflictResolver::default()),
             },
             internal_parameters: solver_options,
         };
@@ -657,11 +667,17 @@ impl ConstraintSatisfactionSolver {
                 };
 
                 let mut resolver = ResolutionResolver::with_mode(AnalysisMode::AllDecision);
-                let learned_nogood = resolver
+
+                let resolve_result = resolver
                     .resolve_conflict(&mut conflict_analysis_context)
                     .expect("Expected core extraction to be able to extract a core");
 
-                CoreExtractionResult::Core(learned_nogood.predicates.clone())
+                match resolve_result {
+                    Nogood(learned_nogood) => {
+                        CoreExtractionResult::Core(learned_nogood.predicates.clone())
+                    }
+                    Constraint(_) => unreachable!("Shouldn't be possible"),
+                }
             })
     }
 
@@ -897,20 +913,19 @@ impl ConstraintSatisfactionSolver {
             unit_nogood_step_ids: &self.unit_nogood_step_ids,
         };
 
-        let learned_nogood = self
+        let resolve_result = self
             .conflict_resolver
             .resolve_conflict(&mut conflict_analysis_context);
 
         // important to notify about the conflict _before_ backtracking removes literals from
         // the trail -> although in the current version this does nothing but notify that a
         // conflict happened
-        if let Some(learned_nogood) = learned_nogood.as_ref() {
+        if let Some(Nogood(learned_nogood)) = resolve_result.as_ref() {
             conflict_analysis_context
                 .counters
                 .learned_clause_statistics
                 .average_backtrack_amount
                 .add_term((current_decision_level - learned_nogood.backjump_level) as u64);
-
             self.restart_strategy.notify_conflict(
                 self.lbd_helper.compute_lbd(
                     &learned_nogood.predicates,
@@ -924,12 +939,12 @@ impl ConstraintSatisfactionSolver {
 
         let result = self
             .conflict_resolver
-            .process(&mut conflict_analysis_context, &learned_nogood);
+            .process(&mut conflict_analysis_context, &resolve_result);
         if result.is_err() {
             unreachable!("Cannot resolve nogood and reach error")
         }
 
-        if let Some(learned_nogood) = learned_nogood {
+        if let Some(Nogood(learned_nogood)) = resolve_result {
             let learned_clause = learned_nogood
                 .predicates
                 .iter()
@@ -974,6 +989,9 @@ impl ConstraintSatisfactionSolver {
             learned_nogood.predicates,
             &mut context,
             &mut self.solver_statistics,
+            self.internal_parameters
+                .learning_options
+                .skip_nogood_learning,
         )
     }
 
@@ -982,11 +1000,15 @@ impl ConstraintSatisfactionSolver {
         nogood: Vec<Predicate>,
         context: &mut PropagationContextMut,
         statistics: &mut SolverStatistics,
+        skip_nogood_learning: bool,
     ) {
         match nogood_propagator.downcast_mut::<NogoodPropagator>() {
-            Some(nogood_propagator) => {
-                nogood_propagator.add_asserting_nogood(nogood, context, statistics)
-            }
+            Some(nogood_propagator) => nogood_propagator.add_asserting_nogood(
+                nogood,
+                context,
+                statistics,
+                skip_nogood_learning,
+            ),
             None => panic!("Provided propagator should be the nogood propagator"),
         }
     }

@@ -1,8 +1,13 @@
+use std::ops::Add;
+use std::ops::Mul;
+use std::ops::Neg;
 use std::ops::Not;
+use std::ops::Sub;
 
 use enumset::EnumSet;
 
 use super::DomainId;
+use super::FlattenedVariable;
 use super::IntegerVariable;
 use super::TransformableVariable;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
@@ -153,6 +158,14 @@ impl IntegerVariable for Literal {
     fn watch_all_backtrack(&self, watchers: &mut Watchers<'_>, events: EnumSet<IntDomainEvent>) {
         self.integer_variable.watch_all_backtrack(watchers, events)
     }
+
+    fn flatten(&self) -> FlattenedVariable {
+        self.integer_variable.flatten()
+    }
+
+    fn get_domain_id(&self) -> DomainId {
+        self.integer_variable.get_domain_id()
+    }
 }
 
 impl PredicateConstructor for Literal {
@@ -182,5 +195,37 @@ impl TransformableVariable<AffineView<Literal>> for Literal {
 
     fn offset(&self, offset: i32) -> AffineView<Literal> {
         AffineView::new(*self, 1, offset)
+    }
+}
+
+impl Mul<i32> for Literal {
+    type Output = AffineView<Literal>;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        self.scaled(rhs)
+    }
+}
+
+impl Add<i32> for Literal {
+    type Output = AffineView<Literal>;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        self.offset(rhs)
+    }
+}
+
+impl Sub<i32> for Literal {
+    type Output = AffineView<Literal>;
+
+    fn sub(self, rhs: i32) -> Self::Output {
+        self.offset(-rhs)
+    }
+}
+
+impl Neg for Literal {
+    type Output = AffineView<Literal>;
+
+    fn neg(self) -> Self::Output {
+        self.scaled(-1)
     }
 }

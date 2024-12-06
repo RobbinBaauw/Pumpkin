@@ -34,6 +34,7 @@ use crate::engine::IntDomainEvent;
 use crate::engine::SolverStatistics;
 use crate::predicate;
 use crate::propagators::nogoods::Nogood;
+use crate::propagators::nogoods::NogoodWatcher;
 use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
@@ -895,6 +896,7 @@ impl NogoodPropagator {
         nogood: Vec<Predicate>,
         context: &mut PropagationContextMut,
         statistics: &mut SolverStatistics,
+        skip_nogood_learning: bool,
     ) {
         // We treat unit nogoods in a special way by adding it as a permanent nogood at the
         // root-level; this is essentially the same as adding a predicate at the root level
@@ -903,63 +905,73 @@ impl NogoodPropagator {
                 context.get_decision_level() == 0,
                 "A unit nogood should have backtracked to the root-level"
             );
+
             self.add_permanent_nogood(nogood, context)
                 .expect("Unit learned nogoods cannot fail.");
+
             return;
         }
 
-        // Skip the zero-th predicate since it is unassigned,
-        // but will be assigned at the level of the predicate at index one.
-        let lbd = self
-            .lbd_helper
-            .compute_lbd(&nogood.as_slice()[1..], context.assignments());
-
-        statistics
-            .learned_clause_statistics
-            .average_lbd
-            .add_term(lbd as u64);
-
-        // Add the nogood to the database.
-        //
-        // If there is an available nogood id, use it, otherwise allocate a fresh id.
-        let new_id = if let Some(reused_id) = self.delete_ids.pop() {
-            self.nogoods[reused_id] = Nogood::new_learned_nogood(nogood.into(), lbd);
-            reused_id
+        if skip_nogood_learning {
+            let propagating_predicate = nogood[0];
+            let reason = Reason::Eager(PropositionalConjunction::from(&nogood.as_slice()[1..]));
+            context
+                .post_predicate(!propagating_predicate, reason)
+                .expect("Cannot fail to add the asserting predicate.");
         } else {
-            let new_nogood_id = NogoodId {
-                id: self.nogoods.len() as u32,
+            // Skip the zero-th predicate since it is unassigned,
+            // but will be assigned at the level of the predicate at index one.
+            let lbd = self
+                .lbd_helper
+                .compute_lbd(&nogood.as_slice()[1..], context.assignments());
+
+            statistics
+                .learned_clause_statistics
+                .average_lbd
+                .add_term(lbd as u64);
+
+            // Add the nogood to the database.
+            //
+            // If there is an available nogood id, use it, otherwise allocate a fresh id.
+            let new_id = if let Some(reused_id) = self.delete_ids.pop() {
+                self.nogoods[reused_id] = Nogood::new_learned_nogood(nogood.into(), lbd);
+                reused_id
+            } else {
+                let new_nogood_id = NogoodId {
+                    id: self.nogoods.len() as u32,
+                };
+                let _ = self
+                    .nogoods
+                    .push(Nogood::new_learned_nogood(nogood.into(), lbd));
+                new_nogood_id
             };
-            let _ = self
-                .nogoods
-                .push(Nogood::new_learned_nogood(nogood.into(), lbd));
-            new_nogood_id
+
+            // Now we add two watchers to the first two predicates in the nogood
+            NogoodPropagator::add_watcher(
+                &mut self.watch_lists,
+                self.nogoods[new_id].predicates[0],
+                new_id,
+            );
+            NogoodPropagator::add_watcher(
+                &mut self.watch_lists,
+                self.nogoods[new_id].predicates[1],
+                new_id,
+            );
+
+            // Then we propagate the asserting predicate and as reason we give the index to the
+            // asserting nogood such that we can re-create the reason when asked for it
+            let reason = Reason::DynamicLazy(new_id.id as u64);
+            context
+                .post_predicate(!self.nogoods[new_id].predicates[0], reason)
+                .expect("Cannot fail to add the asserting predicate.");
+
+            // We then divide the new nogood based on the LBD level
+            if lbd <= self.parameters.lbd_threshold {
+                self.learned_nogood_ids.low_lbd.push(new_id);
+            } else {
+                self.learned_nogood_ids.high_lbd.push(new_id);
+            }
         };
-
-        // Now we add two watchers to the first two predicates in the nogood
-        NogoodPropagator::add_watcher(
-            &mut self.watch_lists,
-            self.nogoods[new_id].predicates[0],
-            new_id,
-        );
-        NogoodPropagator::add_watcher(
-            &mut self.watch_lists,
-            self.nogoods[new_id].predicates[1],
-            new_id,
-        );
-
-        // Then we propagate the asserting predicate and as reason we give the index to the
-        // asserting nogood such that we can re-create the reason when asked for it
-        let reason = Reason::DynamicLazy(new_id.id as u64);
-        context
-            .post_predicate(!self.nogoods[new_id].predicates[0], reason)
-            .expect("Cannot fail to add the asserting predicate.");
-
-        // We then divide the new nogood based on the LBD level
-        if lbd <= self.parameters.lbd_threshold {
-            self.learned_nogood_ids.low_lbd.push(new_id);
-        } else {
-            self.learned_nogood_ids.high_lbd.push(new_id);
-        }
     }
 
     /// Adds a nogood to the propagator as a permanent nogood and sets the internal state to be

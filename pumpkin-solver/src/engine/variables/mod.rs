@@ -5,6 +5,7 @@
 mod affine_view;
 mod domain_generator_iterator;
 mod domain_id;
+mod flattened_variable;
 mod integer_variable;
 mod literal;
 mod transformable_variable;
@@ -12,6 +13,7 @@ mod transformable_variable;
 pub use affine_view::AffineView;
 pub(crate) use domain_generator_iterator::DomainGeneratorIterator;
 pub use domain_id::DomainId;
+pub(crate) use flattened_variable::FlattenedVariable;
 pub use integer_variable::IntegerVariable;
 pub use literal::Literal;
 pub use transformable_variable::TransformableVariable;

@@ -1,7 +1,12 @@
 use std::cmp::Ordering;
+use std::ops::Add;
+use std::ops::Mul;
+use std::ops::Neg;
+use std::ops::Sub;
 
 use enumset::EnumSet;
 
+use super::FlattenedVariable;
 use super::TransformableVariable;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::predicates::predicate::Predicate;
@@ -214,6 +219,15 @@ where
             self.inner.unpack_event(event)
         }
     }
+
+    fn flatten(&self) -> FlattenedVariable {
+        let FlattenedVariable { id, scale, offset } = self.inner.flatten();
+        FlattenedVariable::new(id, scale * self.scale, offset * self.scale + self.offset)
+    }
+
+    fn get_domain_id(&self) -> DomainId {
+        self.inner.get_domain_id()
+    }
 }
 
 impl<View> TransformableVariable<AffineView<View>> for AffineView<View>
@@ -231,6 +245,50 @@ where
         let mut result = self.clone();
         result.offset += offset;
         result
+    }
+}
+
+impl<View> Mul<i32> for AffineView<View>
+where
+    View: IntegerVariable,
+{
+    type Output = AffineView<View>;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        self.scaled(rhs)
+    }
+}
+
+impl<View> Add<i32> for AffineView<View>
+where
+    View: IntegerVariable,
+{
+    type Output = AffineView<View>;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        self.offset(rhs)
+    }
+}
+
+impl<View> Sub<i32> for AffineView<View>
+where
+    View: IntegerVariable,
+{
+    type Output = AffineView<View>;
+
+    fn sub(self, rhs: i32) -> Self::Output {
+        self.offset(-rhs)
+    }
+}
+
+impl<View> Neg for AffineView<View>
+where
+    View: IntegerVariable,
+{
+    type Output = AffineView<View>;
+
+    fn neg(self) -> Self::Output {
+        self.scaled(-1)
     }
 }
 

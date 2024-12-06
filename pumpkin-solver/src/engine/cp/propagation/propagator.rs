@@ -8,6 +8,7 @@ use crate::basic_types::Inconsistency;
 use crate::basic_types::PropagationStatusCP;
 #[cfg(doc)]
 use crate::create_statistics_struct;
+use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::propagation::local_id::LocalId;
 use crate::engine::propagation::propagation_context::PropagationContext;
@@ -149,6 +150,13 @@ pub(crate) trait Propagator: Downcast {
         _: &mut PropagatorInitialisationContext,
     ) -> Result<(), PropositionalConjunction>;
 
+    fn initialise_at_non_root(
+        &mut self,
+        ctx: &mut PropagatorInitialisationContext,
+    ) -> Result<(), PropositionalConjunction> {
+        self.initialise_at_root(ctx)
+    }
+
     /// A check whether this propagator can detect an inconsistency.
     ///
     /// By implementing this function, if the propagator is reified, it can propagate the
@@ -176,6 +184,11 @@ pub(crate) trait Propagator: Downcast {
             )
         );
     }
+
+    fn linear_inequality_explanation(&self) -> Option<LinearLessOrEqual> {
+        None
+    }
+
     /// Logs statistics of the propagator using the provided [`StatisticLogger`].
     ///
     /// It is recommended to create a struct through the [`create_statistics_struct!`] macro!

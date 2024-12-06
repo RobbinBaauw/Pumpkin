@@ -8,7 +8,8 @@ create_statistics_struct!(
         /// Core statistics of the solver engine (e.g. the number of decisions)
         engine_statistics: EngineStatistics,
         /// The statistics related to clause learning
-        learned_clause_statistics: LearnedClauseStatistics
+        learned_clause_statistics: LearnedClauseStatistics,
+        intsat_statistics: IntSatStatistics,
     }
 );
 
@@ -44,4 +45,11 @@ create_statistics_struct!(
         average_backtrack_amount: CumulativeMovingAverage<u64>,
         /// The average literal-block distance (LBD) metric for newly added learned nogoods
         average_lbd: CumulativeMovingAverage<u64>,
+});
+
+create_statistics_struct!(IntSatStatistics {
+    intsat_learned_constraints: u64,
+    intsat_learned_constraints_avg_length: CumulativeMovingAverage<u64>,
+    intsat_constraint_avg_lhs_coeff: CumulativeMovingAverage<u64>,
+    intsat_fallback_used: u64
 });

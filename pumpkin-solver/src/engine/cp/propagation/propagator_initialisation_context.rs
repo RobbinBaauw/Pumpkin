@@ -44,6 +44,27 @@ impl PropagatorInitialisationContext<'_> {
         self.context
     }
 
+    /// Also registers when 'var' is currently fixed.
+    /// Used when registering propagators at non-root
+    pub fn register_unchecked<Var: IntegerVariable>(
+        &mut self,
+        var: Var,
+        domain_events: DomainEvents,
+        local_id: LocalId,
+    ) -> Var {
+        let propagator_var = PropagatorVarId {
+            propagator: self.propagator_id,
+            variable: local_id,
+        };
+
+        self.next_local_id = self.next_local_id.max(LocalId::from(local_id.unpack() + 1));
+
+        let mut watchers = Watchers::new(propagator_var, self.watch_list);
+        var.watch_all(&mut watchers, domain_events.get_int_events());
+
+        var
+    }
+
     /// Subscribes the propagator to the given [`DomainEvents`].
     ///
     /// The domain events determine when [`Propagator::notify()`] will be called on the propagator.
@@ -64,17 +85,7 @@ impl PropagatorInitialisationContext<'_> {
         if self.context.is_fixed(&var) {
             return var;
         }
-        let propagator_var = PropagatorVarId {
-            propagator: self.propagator_id,
-            variable: local_id,
-        };
-
-        self.next_local_id = self.next_local_id.max(LocalId::from(local_id.unpack() + 1));
-
-        let mut watchers = Watchers::new(propagator_var, self.watch_list);
-        var.watch_all(&mut watchers, domain_events.get_int_events());
-
-        var
+        self.register_unchecked(var, domain_events, local_id)
     }
 
     /// Subscribes the propagator to the given [`DomainEvents`] when they are undone during

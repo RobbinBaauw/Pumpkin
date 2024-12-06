@@ -8,6 +8,8 @@ use crate::containers::StorageKey;
 use crate::engine::conflict_analysis::minimisers::Mode;
 use crate::engine::conflict_analysis::minimisers::RecursiveMinimiser;
 use crate::engine::conflict_analysis::ConflictAnalysisContext;
+use crate::engine::conflict_analysis::ConflictResolveResult;
+use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::engine::conflict_analysis::LearnedNogood;
 use crate::engine::propagation::CurrentNogood;
 use crate::engine::Assignments;
@@ -64,7 +66,10 @@ impl ResolutionResolver {
 }
 
 impl ConflictResolver for ResolutionResolver {
-    fn resolve_conflict(&mut self, context: &mut ConflictAnalysisContext) -> Option<LearnedNogood> {
+    fn resolve_conflict(
+        &mut self,
+        context: &mut ConflictAnalysisContext,
+    ) -> Option<ConflictResolveResult> {
         self.clean_up();
 
         // Initialise the data structures with the conflict nogood.
@@ -250,15 +255,21 @@ impl ConflictResolver for ResolutionResolver {
                 );
             }
         }
-        Some(self.extract_final_nogood(context))
+        Some(Nogood(self.extract_final_nogood(context)))
     }
 
     fn process(
         &mut self,
         context: &mut ConflictAnalysisContext,
-        learned_nogood: &Option<LearnedNogood>,
+        resolve_result: &Option<ConflictResolveResult>,
     ) -> Result<(), ()> {
-        let learned_nogood = learned_nogood.as_ref().expect("Expected nogood");
+        let resolve_result_unwrap = resolve_result.as_ref().expect("Expected nogood");
+
+        pumpkin_assert_simple!(matches!(resolve_result_unwrap, Nogood(..)));
+        let learned_nogood = match resolve_result_unwrap {
+            Nogood(no_good) => no_good,
+            _ => unreachable!(),
+        };
 
         context.backtrack(learned_nogood.backjump_level);
         Ok(())

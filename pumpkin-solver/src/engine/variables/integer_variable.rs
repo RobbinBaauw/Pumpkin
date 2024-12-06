@@ -1,5 +1,6 @@
 use enumset::EnumSet;
 
+use super::FlattenedVariable;
 use super::TransformableVariable;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::predicates::predicate_constructor::PredicateConstructor;
@@ -8,6 +9,7 @@ use crate::engine::Assignments;
 use crate::engine::EmptyDomain;
 use crate::engine::IntDomainEvent;
 use crate::engine::Watchers;
+use crate::variables::DomainId;
 
 /// A trait specifying the required behaviour of an integer variable such as retrieving a
 /// lower-bound ([`IntegerVariable::lower_bound`]) or adjusting the bounds
@@ -76,4 +78,8 @@ pub trait IntegerVariable:
 
     /// Decode a domain event for this variable.
     fn unpack_event(&self, event: OpaqueDomainEvent) -> IntDomainEvent;
+
+    // TODO
+    fn flatten(&self) -> FlattenedVariable;
+    fn get_domain_id(&self) -> DomainId;
 }
