@@ -8,11 +8,6 @@ license.workspace = true
 edition.workspace = true
 repository.workspace = true
 
-[[bin]]
-name = "intsat_benchmarks"
-path = "src/bin/pumpkin-solver/intsat_benchmarks.rs"
-bench = true
-
 [dependencies]
 thiserror = "1.0.39"
 log = "0.4.17"
@@ -30,6 +25,7 @@ flatzinc = "0.3.21"
 clap = { version = "4.5.17", features = ["derive"] }
 env_logger = "0.10.0"
 bitfield-struct = "0.9.2"
+num = "0.4.3"
 
 [dev-dependencies]
 clap = { version = "4.5.17", features = ["derive"] }
