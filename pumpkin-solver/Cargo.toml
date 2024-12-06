@@ -8,6 +8,11 @@ license.workspace = true
 edition.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "intsat_benchmarks"
+path = "src/bin/pumpkin-solver/intsat_benchmarks.rs"
+bench = true
+
 [dependencies]
 thiserror = "1.0.39"
 log = "0.4.17"
