@@ -16,14 +16,7 @@ fn find_result_corresponding_to_problem(problem_path: &PathBuf) -> Result<PathBu
         env!("CARGO_MANIFEST_DIR")
     ));
 
-    let problem_name = format!(
-        "/{}",
-        problem_path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-    );
+    let problem_name = format!("/{}", problem_path.file_name().unwrap().to_str().unwrap());
 
     // OZN found, now find the result
     for result_dir in results_base_path.read_dir()? {
@@ -46,7 +39,7 @@ fn find_result_corresponding_to_problem(problem_path: &PathBuf) -> Result<PathBu
             continue;
         }
 
-        return Ok(result_path.join("run_outputs"))
+        return Ok(result_path.join("run_outputs"));
     }
 
     Err(Box::from("no such path found"))
@@ -68,14 +61,23 @@ pub(crate) fn check_matching_solutions() -> Result<(), Box<dyn Error>> {
                 continue;
             }
 
-            if !fs::read_to_string(problem_path).unwrap().contains("solve  satisfy") {
-                println!("Skipping optimisation problem {}", problem_path.to_str().unwrap());
+            if !fs::read_to_string(problem_path)
+                .unwrap()
+                .contains("solve  satisfy")
+            {
+                println!(
+                    "Skipping optimisation problem {}",
+                    problem_path.to_str().unwrap()
+                );
                 continue;
             }
 
             let expected_path = &problem_path.with_extension("ozn");
             if !expected_path.exists() {
-                println!("Missing minizinc solution {}", expected_path.to_str().unwrap());
+                println!(
+                    "Missing minizinc solution {}",
+                    expected_path.to_str().unwrap()
+                );
                 continue;
             }
 
@@ -84,13 +86,22 @@ pub(crate) fn check_matching_solutions() -> Result<(), Box<dyn Error>> {
                 continue;
             }
 
-            if !fs::read_to_string(expected_path)?.trim().ends_with("==========") {
-                println!("Skipping invalid solution {}", expected_path.to_str().unwrap());
+            if !fs::read_to_string(expected_path)?
+                .trim()
+                .ends_with("==========")
+            {
+                println!(
+                    "Skipping invalid solution {}",
+                    expected_path.to_str().unwrap()
+                );
                 continue;
             }
 
             let Ok(outputs_path) = find_result_corresponding_to_problem(problem_path) else {
-                println!("Could not find output for {}", problem_path.to_str().unwrap());
+                println!(
+                    "Could not find output for {}",
+                    problem_path.to_str().unwrap()
+                );
                 continue;
             };
 

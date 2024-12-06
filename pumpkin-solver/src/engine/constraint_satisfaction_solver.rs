@@ -1003,9 +1003,12 @@ impl ConstraintSatisfactionSolver {
         skip_nogood_learning: bool,
     ) {
         match nogood_propagator.downcast_mut::<NogoodPropagator>() {
-            Some(nogood_propagator) => {
-                nogood_propagator.add_asserting_nogood(nogood, context, statistics, skip_nogood_learning)
-            }
+            Some(nogood_propagator) => nogood_propagator.add_asserting_nogood(
+                nogood,
+                context,
+                statistics,
+                skip_nogood_learning,
+            ),
             None => panic!("Provided propagator should be the nogood propagator"),
         }
     }

@@ -10,6 +10,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::RwLock;
 use std::time::Duration;
+
 use pumpkin_solver::branching::branchers::alternating_brancher::AlternatingBrancher;
 use pumpkin_solver::branching::branchers::alternating_brancher::AlternatingStrategy;
 use pumpkin_solver::branching::branchers::dynamic_brancher::DynamicBrancher;
@@ -25,6 +26,7 @@ use pumpkin_solver::termination::Combinator;
 use pumpkin_solver::termination::OsSignal;
 use pumpkin_solver::termination::TimeBudget;
 use pumpkin_solver::Solver;
+
 use self::instance::FlatZincInstance;
 use self::instance::FlatzincObjective;
 use self::instance::Output;

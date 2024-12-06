@@ -1,10 +1,11 @@
 use std::rc::Rc;
+
 use itertools::Itertools;
 use pumpkin_solver::branching::branchers::dynamic_brancher::DynamicBrancher;
 use pumpkin_solver::branching::branchers::independent_variable_value_brancher::IndependentVariableValueBrancher;
-use pumpkin_solver::branching::Brancher;
 use pumpkin_solver::branching::value_selection::InDomainMin;
 use pumpkin_solver::branching::variable_selection::InputOrder;
+use pumpkin_solver::branching::Brancher;
 use pumpkin_solver::variables::DomainId;
 use pumpkin_solver::variables::Literal;
 
@@ -19,7 +20,7 @@ use crate::flatzinc::error::FlatZincError;
 pub(crate) fn run(
     ast: &FlatZincAst,
     context: &mut CompilationContext,
-    append_fixed_brancher: bool
+    append_fixed_brancher: bool,
 ) -> Result<DynamicBrancher, FlatZincError> {
     create_from_search_strategy(&ast.search, context, true, append_fixed_brancher)
 }
@@ -96,7 +97,12 @@ fn create_from_search_strategy(
     };
 
     if append_fixed_brancher {
-        let bool_variables = context.boolean_variable_map.iter().sorted_by_key(|(i, _)| *i).map(|(_, v)| *v).collect_vec();
+        let bool_variables = context
+            .boolean_variable_map
+            .iter()
+            .sorted_by_key(|(i, _)| *i)
+            .map(|(_, v)| *v)
+            .collect_vec();
         if !bool_variables.is_empty() {
             brancher.add_brancher(Box::new(IndependentVariableValueBrancher::new(
                 InputOrder::new(bool_variables.as_slice()),
@@ -104,7 +110,12 @@ fn create_from_search_strategy(
             )));
         }
 
-        let int_variables = context.integer_variable_map.iter().sorted_by_key(|(i, _)| *i).map(|(_, v)| *v).collect_vec();
+        let int_variables = context
+            .integer_variable_map
+            .iter()
+            .sorted_by_key(|(i, _)| *i)
+            .map(|(_, v)| *v)
+            .collect_vec();
         if !int_variables.is_empty() {
             brancher.add_brancher(Box::new(IndependentVariableValueBrancher::new(
                 InputOrder::new(int_variables.as_slice()),

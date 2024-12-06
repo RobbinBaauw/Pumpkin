@@ -90,10 +90,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     writeln!(&mut general_logger, "Version: 6")?;
     writeln!(&mut general_logger, "File: {:?}", args.instance_path)?;
-    writeln!(&mut general_logger, "All solutions: {:?}", args.all_solutions)?;
-    writeln!(&mut general_logger, "Time-limit: {:?}", args.time_limit.unwrap_or(0))?;
+    writeln!(
+        &mut general_logger,
+        "All solutions: {:?}",
+        args.all_solutions
+    )?;
+    writeln!(
+        &mut general_logger,
+        "Time-limit: {:?}",
+        args.time_limit.unwrap_or(0)
+    )?;
     writeln!(&mut general_logger, "Use intsat: {:?}", args.use_intsat)?;
-    writeln!(&mut general_logger, "Skip nogood learning: {:?}", args.skip_nogood_learning)?;
+    writeln!(
+        &mut general_logger,
+        "Skip nogood learning: {:?}",
+        args.skip_nogood_learning
+    )?;
     writeln!(&mut general_logger, "Fixed search: {:?}", args.fixed_search)?;
 
     // Configure logging

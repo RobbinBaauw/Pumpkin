@@ -1,5 +1,3 @@
-use std::collections::hash_map::Entry::Occupied;
-use std::collections::HashMap;
 use itertools::Itertools;
 use log::debug;
 
@@ -26,14 +24,17 @@ pub(crate) struct IntSatConflictResolver {
     resolution_resolver: ResolutionResolver,
 }
 
-enum CutResult {
+#[derive(Debug, Default)]
+struct CutSuccess {
+    inequality: LinearLessOrEqual,
+    skip_early_backjump: bool,
+}
+
+#[derive(Debug)]
+enum CutError {
     NothingLearned,
     Overflow,
     Contradiction,
-    Success {
-        inequality: LinearLessOrEqual,
-        skip_early_backjump: bool,
-    },
 }
 
 impl IntSatConflictResolver {
@@ -47,10 +48,16 @@ impl IntSatConflictResolver {
         self.resolution_resolver.resolve_conflict(context)
     }
 
-    fn apply_cut(var: DomainId, c1: &LinearLessOrEqual, c2: &LinearLessOrEqual) -> CutResult {
+    fn apply_cut(
+        var: DomainId,
+        c1: &LinearLessOrEqual,
+        c2: &LinearLessOrEqual,
+    ) -> Result<CutSuccess, CutError> {
         let c1_scale = c1.find_variable_scale(var).unwrap();
         let c2_scale = c2.find_variable_scale(var).unwrap();
 
+        // A pre-condition to apply a cut is that both constraints have 'var'
+        // and that they have opposite signs
         pumpkin_assert_ne_simple!(c1_scale.is_positive(), c2_scale.is_positive());
 
         let g = gcd(c1_scale.abs(), c2_scale.abs());
@@ -59,57 +66,76 @@ impl IntSatConflictResolver {
 
         let mut skip_early_backjump = true;
 
-        let mut new_lhs: HashMap<DomainId, i32> = HashMap::new();
+        let mut c1_sorted = c1.lhs.iter().sorted_by_key(|(id, _)| id.id).peekable();
+        let mut c2_sorted = c2.lhs.iter().sorted_by_key(|(id, _)| id.id).peekable();
 
-        for (id, scale) in c1.lhs.iter() {
-            let Some(new_scale) = mult_c1.checked_mul(*scale) else {
-                return CutResult::Overflow;
-            };
-            let _ = new_lhs.insert(*id, new_scale);
+        let mut new_lhs: Vec<(DomainId, i32)> = vec![];
+
+        let mult_or_err = |item: Option<&&(DomainId, i32)>, mult: i32| {
+            item.map(|(id, curr_scale)| {
+                let new_scale = mult.checked_mul(*curr_scale).ok_or(CutError::Overflow)?;
+                Ok((*id, new_scale))
+            })
+            .transpose()
+        };
+
+        while c1_sorted.peek().is_some() || c2_sorted.peek().is_some() {
+            let c1_item = mult_or_err(c1_sorted.peek(), mult_c1)?;
+            let c2_item = mult_or_err(c2_sorted.peek(), mult_c2)?;
+
+            match (c1_item, c2_item) {
+                (Some((c1_id, c1_scale)), Some((c2_id, c2_scale))) => {
+                    if c1_id.id < c2_id.id {
+                        new_lhs.push((c1_id, c1_scale));
+                        let _ = c1_sorted.next();
+                    } else if c2_id.id < c1_id.id {
+                        new_lhs.push((c2_id, c2_scale));
+                        let _ = c2_sorted.next();
+                    } else {
+                        // Don't skip early backjump in case there is a clash between variables that
+                        // are not 'var'
+                        if c1_id != var {
+                            skip_early_backjump = false;
+                        }
+
+                        let new_scale = c1_scale.checked_add(c2_scale).ok_or(CutError::Overflow)?;
+                        if new_scale != 0 {
+                            new_lhs.push((c1_id, new_scale));
+                        }
+
+                        let _ = c1_sorted.next();
+                        let _ = c2_sorted.next();
+                    }
+                }
+                (Some((c1_id, c1_scale)), None) => {
+                    new_lhs.push((c1_id, c1_scale));
+                    let _ = c1_sorted.next();
+                }
+                (None, Some((c2_id, c2_scale))) => {
+                    new_lhs.push((c2_id, c2_scale));
+                    let _ = c2_sorted.next();
+                }
+                (None, None) => unreachable!("Shouldn't be possible"),
+            }
         }
 
-        for (id, scale) in c2.lhs.iter() {
-            let entry = new_lhs.entry(*id);
+        pumpkin_assert_simple!(
+            !new_lhs.iter().any(|(k, _)| *k == var),
+            "variable not eliminated"
+        );
 
-            // Don't skip early backjump in case there is a clash between variables that are not
-            // 'var'
-            if matches!(entry, Occupied { .. }) && *id != var {
-                skip_early_backjump = false;
-            }
-
-            let Some(new_scale) = mult_c2.checked_mul(*scale) else {
-                return CutResult::Overflow;
-            };
-
-            let curr_scale = entry.or_insert(0);
-            let Some(curr_scale_safe) = curr_scale.checked_add(new_scale) else {
-                return CutResult::Overflow;
-            };
-            *curr_scale = curr_scale_safe;
-
-            if *curr_scale == 0 {
-                let _ = new_lhs.remove(&id);
-            }
-        }
-
-        pumpkin_assert_simple!(!new_lhs.contains_key(&var), "variable not eliminated");
-
-        let Some(c1_rhs_scaled) = c1.rhs.checked_mul(mult_c1) else {
-            return CutResult::Overflow;
-        };
-        let Some(c2_rhs_scaled) = c2.rhs.checked_mul(mult_c2) else {
-            return CutResult::Overflow;
-        };
-        let Some(mut new_rhs) = c1_rhs_scaled.checked_add(c2_rhs_scaled) else {
-            return CutResult::Overflow;
-        };
+        let c1_rhs_scaled = c1.rhs.checked_mul(mult_c1).ok_or(CutError::Overflow)?;
+        let c2_rhs_scaled = c2.rhs.checked_mul(mult_c2).ok_or(CutError::Overflow)?;
+        let mut new_rhs = c1_rhs_scaled
+            .checked_add(c2_rhs_scaled)
+            .ok_or(CutError::Overflow)?;
 
         if new_lhs.len() == 0 {
-            return if new_rhs < 0 {
-                CutResult::Contradiction
+            return Err(if new_rhs < 0 {
+                CutError::Contradiction
             } else {
-                CutResult::NothingLearned
-            };
+                CutError::NothingLearned
+            });
         }
 
         // Normalization
@@ -125,13 +151,13 @@ impl IntSatConflictResolver {
         });
         new_rhs = div_ceil(new_rhs, new_gcd);
 
-        CutResult::Success {
+        Ok(CutSuccess {
             inequality: LinearLessOrEqual {
-                lhs: new_lhs.into_iter().sorted_by_key(|(id, _)| id.id).collect(),
+                lhs: new_lhs,
                 rhs: new_rhs,
             },
             skip_early_backjump,
-        }
+        })
     }
 }
 
@@ -180,7 +206,9 @@ impl ConflictResolver for IntSatConflictResolver {
                     Some(prop_constraint_expl) => prop_constraint_expl,
                 }
             }
-            StoredConflictInfo::RootLevelConflict(..) => unreachable!("Shouldn't be possible"),
+            StoredConflictInfo::RootLevelConflict(..) => {
+                unreachable!("Shouldn't have to explain a root level conflict")
+            }
         };
 
         let current_decision_level = context.assignments.get_decision_level();
@@ -209,7 +237,9 @@ impl ConflictResolver for IntSatConflictResolver {
                     continue;
                 };
 
-                if conflicting_constraint.is_conflicting(context.assignments, trail_index) {
+                // Once we have found a non-conflicting trail level, use this level to start our analysis
+                // TODO: this I changed AFTER all experiments, so should be verified
+                if !conflicting_constraint.is_conflicting(context.assignments, trail_index) {
                     trail_index -= 1;
                     break trail_entry;
                 }
@@ -225,7 +255,7 @@ impl ConflictResolver for IntSatConflictResolver {
             let propagator = &context.propagators[propagator_id];
 
             let prop_constraint_expl_opt = propagator.linear_inequality_explanation();
-            if prop_constraint_expl_opt.is_none() {
+            let Some(prop_constraint_expl) = prop_constraint_expl_opt else {
                 // In this case, we have a conjunction of predicates, which we can somewhat turn
                 // into a linear constraint Say for instance, our conflicting
                 // constraint is 3x + y <= 3, with reason for [y >= 3] being [z >= 2] /\ [y <= 2]
@@ -254,12 +284,11 @@ impl ConflictResolver for IntSatConflictResolver {
                 // encounter the propagated nogood, we can use the linear constraint.
                 // However, this still just uses resolution, but allows for using linear constraints
                 // in some more cases, even when nogoods have been propagated
-                // TODO think this through a bit more to see if it's nice
 
+                // For now, we fall back to resolution and this is likely out of scope.
                 return self.apply_fallback(context, "Detected nogoods");
-            }
+            };
 
-            let prop_constraint_expl = prop_constraint_expl_opt.unwrap();
             debug!(
                 "==>==> Merging with {:?}: {prop_constraint_expl}",
                 trail_entry.predicate.get_domain()
@@ -286,34 +315,33 @@ impl ConflictResolver for IntSatConflictResolver {
                 &conflicting_constraint,
                 &prop_constraint_expl,
             ) {
-                CutResult::NothingLearned => {
+                Err(CutError::NothingLearned) => {
                     return self.apply_fallback(context, "Nothing learned");
                 }
-                CutResult::Overflow => {
+                Err(CutError::Overflow) => {
                     return self.apply_fallback(context, "Overflow");
                 }
-                CutResult::Contradiction => {
+                Err(CutError::Contradiction) => {
                     debug!("==>==> Contradiction, unsat!");
                     return Some(Nogood(LearnedNogood {
                         predicates: vec![Predicate::trivially_true()],
                         backjump_level: 0,
                     }));
                 }
-                CutResult::Success {
+                Ok(CutSuccess {
                     inequality: constraint,
                     skip_early_backjump,
-                } => (constraint, skip_early_backjump),
+                }) => (constraint, skip_early_backjump),
             };
 
             debug!("==> New conflicting constraint after eliminating {:?}: {new_conflicting_constraint}", trail_entry.predicate.get_domain());
 
-            // Super inefficient, but necessary...
-            // TODO maybe cache?
+            // Check whether the newly learned conflicting constraint overflows with the current assignments
             if new_conflicting_constraint.overflows(context.assignments, trail_index) {
                 return self.apply_fallback(context, "Overflow");
             }
 
-            // If this new constraint is not false at the current height, skip!
+            // If this new constraint is not false at the current height, we skip it and apply resolution
             if !new_conflicting_constraint.is_conflicting(context.assignments, trail_index) {
                 return self.apply_fallback(context, "Not conflicting");
             }
@@ -348,8 +376,7 @@ impl ConflictResolver for IntSatConflictResolver {
                     .get_trail_position_for_decision_level(backjump_level)
                     - 1;
 
-                // Super inefficient, but necessary...
-                // TODO maybe cache?
+                // Check whether the newly learned conflicting constraint overflows with the assignments at that level
                 if conflicting_constraint.overflows(context.assignments, backjump_trail_level) {
                     return self.apply_fallback(context, "Overflow");
                 }
@@ -443,9 +470,9 @@ impl ConflictResolver for IntSatConflictResolver {
         let _ = new_propagator.initialise_at_non_root(&mut initialisation_context);
 
         // We know this the previous call can result in Err (as we also backtrack when the
-        // constraint is still conflicting) We do not return an error however, as the fact
-        // that the propagator is not happy will be detected next cycle IntSat: re-start
-        // conflict analysis in this case, we mimic this here
+        // constraint is still conflicting). We do not return an error however, as the fact
+        // that the propagator is not happy will be detected next cycle
+        // IntSat: re-start conflict analysis in this case, we mimic this here
         context
             .propagator_queue
             .enqueue_propagator(new_propagator_id, new_propagator.priority());
@@ -463,6 +490,7 @@ fn div_ceil(num: i32, div: i32) -> i32 {
     }
 }
 
+// Taken from https://docs.rs/num-integer/latest/src/num_integer/lib.rs.html#420-422
 fn gcd(a: i32, b: i32) -> i32 {
     let mut m = a;
     let mut n = b;
@@ -508,10 +536,10 @@ fn gcd(a: i32, b: i32) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutResult::Contradiction;
-    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutResult::NothingLearned;
-    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutResult::Overflow;
-    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutResult::Success;
+    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutError::Contradiction;
+    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutError::NothingLearned;
+    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutError::Overflow;
+    use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutSuccess;
     use crate::engine::conflict_analysis::IntSatConflictResolver;
     use crate::engine::propagation::linear_less_or_equal::LinearLessOrEqual;
     use crate::variables::DomainId;
@@ -540,15 +568,10 @@ mod tests {
             rhs: -6,
         };
 
-        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
-
-        let Success {
+        let CutSuccess {
             skip_early_backjump,
             inequality,
-        } = cut_result
-        else {
-            panic!("expected a successful cut")
-        };
+        } = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap();
 
         let z = LinearLessOrEqual {
             lhs: vec![(b, -8), (c, 19), (d, -5), (e, 20)],
@@ -576,15 +599,10 @@ mod tests {
             rhs: -5,
         };
 
-        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
-
-        let Success {
+        let CutSuccess {
             skip_early_backjump,
             inequality,
-        } = cut_result
-        else {
-            panic!("expected a successful cut")
-        };
+        } = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap();
 
         let z = LinearLessOrEqual {
             lhs: vec![(b, -2), (c, 10), (d, -5), (e, 8)],
@@ -612,15 +630,10 @@ mod tests {
             rhs: -5,
         };
 
-        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
-
-        let Success {
+        let CutSuccess {
             skip_early_backjump,
             inequality,
-        } = cut_result
-        else {
-            panic!("expected a successful cut")
-        };
+        } = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap();
 
         let z = LinearLessOrEqual {
             lhs: vec![(b, 2), (c, 4), (d, -5), (e, 8)],
@@ -648,15 +661,10 @@ mod tests {
             rhs: -5,
         };
 
-        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
-
-        let Success {
+        let CutSuccess {
             skip_early_backjump,
             inequality,
-        } = cut_result
-        else {
-            panic!("expected a successful cut")
-        };
+        } = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap();
 
         let z = LinearLessOrEqual {
             lhs: vec![(b, -16), (c, 38), (d, 15), (e, 38)],
@@ -684,7 +692,7 @@ mod tests {
             rhs: -5,
         };
 
-        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap_err();
 
         assert!(matches!(cut_result, Contradiction {}));
     }
@@ -703,7 +711,7 @@ mod tests {
             rhs: -5,
         };
 
-        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap_err();
 
         assert!(matches!(cut_result, NothingLearned {}));
     }
@@ -722,7 +730,7 @@ mod tests {
             rhs: -5,
         };
 
-        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y);
+        let cut_result = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap_err();
 
         assert!(matches!(cut_result, Overflow {}));
     }
