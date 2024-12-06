@@ -17,7 +17,7 @@ use crate::engine::Watchers;
 /// Propagators use the [`PropagatorInitialisationContext`] to register to domain changes
 /// of variables and to retrieve the current bounds of variables.
 #[derive(Debug)]
-pub struct PropagatorInitialisationContext<'a> {
+pub(crate) struct PropagatorInitialisationContext<'a> {
     watch_list: &'a mut WatchListCP,
     propagator_id: PropagatorId,
     next_local_id: LocalId,
@@ -76,7 +76,7 @@ impl PropagatorInitialisationContext<'_> {
     ///
     /// Note that the [`LocalId`] is used to differentiate between [`DomainId`]s and
     /// [`AffineView`]s.
-    pub fn register<Var: IntegerVariable>(
+    pub(crate) fn register<Var: IntegerVariable>(
         &mut self,
         var: Var,
         domain_events: DomainEvents,
@@ -101,7 +101,7 @@ impl PropagatorInitialisationContext<'_> {
     ///
     /// Note that the [`LocalId`] is used to differentiate between [`DomainId`]s and
     /// [`AffineView`]s.
-    pub fn register_for_backtrack_events<Var: IntegerVariable>(
+    pub(crate) fn register_for_backtrack_events<Var: IntegerVariable>(
         &mut self,
         var: Var,
         domain_events: DomainEvents,
@@ -120,7 +120,7 @@ impl PropagatorInitialisationContext<'_> {
         var
     }
 
-    pub fn get_next_local_id(&self) -> LocalId {
+    pub(crate) fn get_next_local_id(&self) -> LocalId {
         self.next_local_id
     }
 }
