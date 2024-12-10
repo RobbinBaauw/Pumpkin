@@ -46,7 +46,7 @@ impl PropagatorInitialisationContext<'_> {
 
     /// Also registers when 'var' is currently fixed.
     /// Used when registering propagators at non-root
-    pub fn register_unchecked<Var: IntegerVariable>(
+    pub(crate) fn register_unchecked<Var: IntegerVariable>(
         &mut self,
         var: Var,
         domain_events: DomainEvents,

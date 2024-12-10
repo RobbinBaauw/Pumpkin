@@ -84,28 +84,28 @@ impl IntSatConflictResolver {
             let c2_item = mult_or_err(c2_sorted.peek(), mult_c2)?;
 
             match (c1_item, c2_item) {
-                (Some((c1_id, c1_scale)), Some((c2_id, c2_scale))) => {
-                    if c1_id.id < c2_id.id {
-                        new_lhs.push((c1_id, c1_scale));
-                        let _ = c1_sorted.next();
-                    } else if c2_id.id < c1_id.id {
-                        new_lhs.push((c2_id, c2_scale));
-                        let _ = c2_sorted.next();
-                    } else {
-                        // Don't skip early backjump in case there is a clash between variables that
-                        // are not 'var'
-                        if c1_id != var {
-                            skip_early_backjump = false;
-                        }
-
-                        let new_scale = c1_scale.checked_add(c2_scale).ok_or(CutError::Overflow)?;
-                        if new_scale != 0 {
-                            new_lhs.push((c1_id, new_scale));
-                        }
-
-                        let _ = c1_sorted.next();
-                        let _ = c2_sorted.next();
+                (Some((c1_id, c1_scale)), Some((c2_id, _))) if c1_id.id < c2_id.id => {
+                    new_lhs.push((c1_id, c1_scale));
+                    let _ = c1_sorted.next();
+                }
+                (Some((c1_id, _)), Some((c2_id, c2_scale))) if c2_id.id < c1_id.id => {
+                    new_lhs.push((c2_id, c2_scale));
+                    let _ = c2_sorted.next();
+                }
+                (Some((c1_id, c1_scale)), Some((c2_id, c2_scale))) if c1_id.id == c2_id.id => {
+                    // Don't skip early backjump in case there is a clash between variables that
+                    // are not 'var'
+                    if c1_id != var {
+                        skip_early_backjump = false;
                     }
+
+                    let new_scale = c1_scale.checked_add(c2_scale).ok_or(CutError::Overflow)?;
+                    if new_scale != 0 {
+                        new_lhs.push((c1_id, new_scale));
+                    }
+
+                    let _ = c1_sorted.next();
+                    let _ = c2_sorted.next();
                 }
                 (Some((c1_id, c1_scale)), None) => {
                     new_lhs.push((c1_id, c1_scale));
@@ -115,7 +115,7 @@ impl IntSatConflictResolver {
                     new_lhs.push((c2_id, c2_scale));
                     let _ = c2_sorted.next();
                 }
-                (None, None) => unreachable!("Shouldn't be possible"),
+                _ => unreachable!("Shouldn't be possible"),
             }
         }
 
@@ -219,34 +219,41 @@ impl ConflictResolver for IntSatConflictResolver {
             debug!("Conflicting constraint: {conflicting_constraint}");
 
             // Find trail entry at which the conflicting constraint is not conflicting anymore
-            let trail_entry = loop {
-                debug!("==> Finding trail entry at level {trail_index}");
+            debug!("==> Finding trail entry at level {trail_index}");
 
-                let trail_entry = context.assignments.get_trail_entry(trail_index);
-                let trail_entry_var = trail_entry.predicate.get_domain();
+            let trail_entry = context.assignments.get_trail_entry(trail_index);
+            let trail_entry_var = trail_entry.predicate.get_domain();
 
-                // When a decision is reached, and we haven't found a conflicting solution yet, skip
-                if trail_entry.reason.is_none() {
-                    return self.apply_fallback(context, "Decision reached");
-                }
+            // When a decision is reached, and we haven't found a conflicting solution yet, skip
+            if trail_entry.reason.is_none() {
+                return self.apply_fallback(context, "Decision reached");
+            }
 
-                // If the conflicting constraint doesn't contain this variable, go to next level
-                if !conflicting_constraint.contains_variable(trail_entry_var) {
-                    debug!("==>==> Not containing {trail_entry_var} at {trail_index}, skip");
-                    trail_index -= 1;
-                    continue;
-                };
-
-                // Once we have found a non-conflicting trail level, use this level to start our analysis
-                // TODO: this I changed AFTER all experiments, so should be verified
-                if !conflicting_constraint.is_conflicting(context.assignments, trail_index) {
-                    trail_index -= 1;
-                    break trail_entry;
-                }
-
-                debug!("==>==> Not conflicting at {trail_index}, skip");
+            // If the conflicting constraint doesn't contain this variable, go to next level
+            if !conflicting_constraint.contains_variable(trail_entry_var) {
+                debug!("==>==> Not containing {trail_entry_var} at {trail_index}, skip");
                 trail_index -= 1;
+                continue;
             };
+
+            // TODO: this is flipped compared to IntSat's behavior. But this is how I performed all
+            // previous experiments, and quick tests show that flipping this is NOT a good
+            // condition. Check what the merit of this was and whether we need to still
+            // use it. This goes a bit in tandem with the other is_conflicting
+            // check later. I can see the reason for these checks; making sure we
+            // do not continue a search that is unlikely to lead us to an asserting learned
+            // constraint, but on the other hand, you are throwing away some
+            // possibly useful combinations. For now, I leave it as it was during the experiments.
+
+            // Once we have found a conflicting trail level, use this level to start our
+            // analysis
+            if !conflicting_constraint.is_conflicting(context.assignments, trail_index) {
+                trail_index -= 1;
+                continue;
+            }
+
+            debug!("==>==> Using {trail_index}");
+            trail_index -= 1;
 
             // Find the scale of the variable of its reason
             let propagator_id = context
@@ -336,12 +343,17 @@ impl ConflictResolver for IntSatConflictResolver {
 
             debug!("==> New conflicting constraint after eliminating {:?}: {new_conflicting_constraint}", trail_entry.predicate.get_domain());
 
-            // Check whether the newly learned conflicting constraint overflows with the current assignments
+            // Check whether the newly learned conflicting constraint overflows with the current
+            // assignments
             if new_conflicting_constraint.overflows(context.assignments, trail_index) {
                 return self.apply_fallback(context, "Overflow");
             }
 
-            // If this new constraint is not false at the current height, we skip it and apply resolution
+            // TODO: check whether this condition helps (and what trail_index would make sense), see
+            // explanation on previous condition
+
+            // If this new constraint is not false at the current height, we skip it and apply
+            // resolution
             if !new_conflicting_constraint.is_conflicting(context.assignments, trail_index) {
                 return self.apply_fallback(context, "Not conflicting");
             }
@@ -376,7 +388,8 @@ impl ConflictResolver for IntSatConflictResolver {
                     .get_trail_position_for_decision_level(backjump_level)
                     - 1;
 
-                // Check whether the newly learned conflicting constraint overflows with the assignments at that level
+                // Check whether the newly learned conflicting constraint overflows with the
+                // assignments at that level
                 if conflicting_constraint.overflows(context.assignments, backjump_trail_level) {
                     return self.apply_fallback(context, "Overflow");
                 }

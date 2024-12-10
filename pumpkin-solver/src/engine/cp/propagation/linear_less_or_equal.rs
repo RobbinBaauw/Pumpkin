@@ -10,24 +10,24 @@ use crate::variables::IntegerVariable;
 use crate::variables::TransformableVariable;
 
 #[derive(Default, Debug, Clone)]
-pub struct LinearLessOrEqual {
+pub(crate) struct LinearLessOrEqual {
     pub lhs: Vec<(DomainId, i32)>,
     pub rhs: i32,
 }
 
 impl LinearLessOrEqual {
-    pub fn contains_variable(&self, variable: DomainId) -> bool {
+    pub(crate) fn contains_variable(&self, variable: DomainId) -> bool {
         self.lhs.iter().find(|(var, _)| *var == variable).is_some()
     }
 
-    pub fn find_variable_scale(&self, variable: DomainId) -> Option<i32> {
+    pub(crate) fn find_variable_scale(&self, variable: DomainId) -> Option<i32> {
         self.lhs
             .iter()
             .find(|(var, _)| *var == variable)
             .map(|(_, scale)| *scale)
     }
 
-    pub fn to_vars(&self) -> Vec<AffineView<DomainId>> {
+    pub(crate) fn to_vars(&self) -> Vec<AffineView<DomainId>> {
         self.lhs
             .iter()
             .map(|(var, scale)| var.scaled(*scale))
@@ -46,7 +46,7 @@ impl LinearLessOrEqual {
         })
     }
 
-    pub fn lb_lhs(&self, assignments: &Assignments, trail_position: usize) -> i64 {
+    pub(crate) fn lb_lhs(&self, assignments: &Assignments, trail_position: usize) -> i64 {
         self.lhs
             .iter()
             .map(|(var, scale)| {
@@ -56,15 +56,15 @@ impl LinearLessOrEqual {
             .sum::<i64>()
     }
 
-    pub fn slack(&self, assignments: &Assignments, trail_position: usize) -> i64 {
+    pub(crate) fn slack(&self, assignments: &Assignments, trail_position: usize) -> i64 {
         (self.rhs as i64) - self.lb_lhs(assignments, trail_position)
     }
 
-    pub fn is_conflicting(&self, assignments: &Assignments, trail_position: usize) -> bool {
+    pub(crate) fn is_conflicting(&self, assignments: &Assignments, trail_position: usize) -> bool {
         self.slack(assignments, trail_position) < 0
     }
 
-    pub fn is_propagating(&self, assignments: &Assignments, trail_position: usize) -> bool {
+    pub(crate) fn is_propagating(&self, assignments: &Assignments, trail_position: usize) -> bool {
         let lb_lhs = self.lb_lhs(assignments, trail_position);
 
         for (id, scale) in &self.lhs {
@@ -84,7 +84,7 @@ impl LinearLessOrEqual {
         false
     }
 
-    pub fn overflows(&self, assignments: &Assignments, trail_index: usize) -> bool {
+    pub(crate) fn overflows(&self, assignments: &Assignments, trail_index: usize) -> bool {
         if self.lb_lhs_overflows(assignments, trail_index) {
             return true;
         }

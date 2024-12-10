@@ -23,8 +23,8 @@ def parse_bench_results():
 
 def parse_examples_results():
     resolution_results = parse_results_dir(BASE_DIR / "15" / "2")
-    intsat_results = parse_results_dir(BASE_DIR / "15" / "0")
-    intsat_skip_results = parse_results_dir(BASE_DIR / "15" / "1")
+    intsat_results = parse_results_dir(BASE_DIR / "23" / "0")
+    intsat_skip_results = parse_results_dir(BASE_DIR / "23" / "1")
     intsat_og_results = parse_results_dir(BASE_DIR / "9" / "0")
 
     assert all(map(lambda r: r.program == Program.RESOLUTION, resolution_results))
@@ -38,14 +38,14 @@ def parse_examples_results():
 
 
 if __name__ == "__main__":
-    # parse_examples_results()
+    parse_examples_results()
     with open('results_out_examples.pkl', 'rb') as results_file:
         results: Results = pickle.load(results_file)
     headers, data = results_to_table(results)
     print(table_to_latex(headers, data))
 
     # parse_bench_results()
-    with open('results_out_bench.pkl', 'rb') as results_file:
-        results: Results = pickle.load(results_file)
-    headers, data = results_to_table(results)
-    print(table_to_latex(headers, data, split_size=90))
+    # with open('results_out_bench.pkl', 'rb') as results_file:
+    #     results: Results = pickle.load(results_file)
+    # headers, data = results_to_table(results)
+    # print(table_to_latex(headers, data, split_size=90))

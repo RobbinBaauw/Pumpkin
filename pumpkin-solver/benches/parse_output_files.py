@@ -176,10 +176,14 @@ def parse_stat_file(stat_path: Path):
 
     def parse_stat_line(stat_line: str):
         stat_res = re.search("^\$stat\$-I(.+)-SL(.+) (.+)=(.+)$", stat_line)
-        if stat_res is None:
-            raise RuntimeError(f"Cannot parse line {stat_line}")
+        if stat_res is not None:
+            return json.loads(stat_res.group(1)), json.loads(stat_res.group(2)), stat_res.group(3), json.loads(stat_res.group(4))
 
-        return json.loads(stat_res.group(1)), json.loads(stat_res.group(2)), stat_res.group(3), json.loads(stat_res.group(4))
+        stat_res = re.search("^\$stat\$ (.+)=(.+)$", stat_line)
+        if stat_res is not None:
+            return None, None, stat_res.group(1), json.loads(stat_res.group(2))
+
+        raise RuntimeError(f"Cannot parse line {stat_line}")
 
     objective = None
     linear_leq_id_values = defaultdict(lambda: LinearLeq(0, 0))

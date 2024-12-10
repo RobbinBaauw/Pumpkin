@@ -7,7 +7,7 @@ warn_on_label_overlap = false
 [slurm]
 experiment_name = "intsat_bench_1"
 partition = "compute"
-account = "education-eemcs-msc-cs"
+account = "research-eemcs-st"
 output_folder = "./"
 
 [resource_limits]
@@ -16,29 +16,29 @@ cpus = 1
 mem_per_cpu = 16384
 
 [program]
-[program.resolution]
+#[program.resolution]
+#binary = "./intsat_benchmarks"
+#arguments = ["--log-to-files", "--time-limit", "3600000"]
+
+[program.intsat-learn]
 binary = "./intsat_benchmarks"
-arguments = ["--log-to-files", "--time-limit", "3600000"]
+arguments = ["--log-to-files", "--use-intsat", "--time-limit", "3600000"]
 
-#[program.intsat-learn]
-#binary = "./intsat_benchmarks"
-#arguments = ["--log-to-files", "--use-intsat", "--time-limit", "3600000"]
+[program.intsat-nolearn]
+binary = "./intsat_benchmarks"
+arguments = ["--log-to-files", "--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
 
-#[program.intsat-nolearn]
-#binary = "./intsat_benchmarks"
-#arguments = ["--log-to-files", "--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
-
-#[program.intsat]
+#[program.intsat-og]
 #binary = "./intsat_og"
 #arguments = ["-conflict_analysis", "cuts", "-tlimit", "3600"]
 
 [input]
 
-[input.benchmarks]
-arguments = ["path|/scratch/rbaauw/benchmarks-set-small/**/*.fzn"]
+#[input.benchmarks]
+#arguments = ["path|/scratch/rbaauw/benchmarks-set-small/**/*.fzn"]
 
-#[input.examples-fzn]
-#arguments = ["path|/scratch/rbaauw/examples-set/**/*.fzn"]
+[input.examples-fzn]
+arguments = ["path|/scratch/rbaauw/examples-set/**/*.fzn"]
 
 #[input.examples-lp]
 #arguments = ["path|/scratch/rbaauw/examples-set/**/*.lp"]

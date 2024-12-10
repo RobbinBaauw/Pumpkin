@@ -34,7 +34,6 @@ use crate::engine::IntDomainEvent;
 use crate::engine::SolverStatistics;
 use crate::predicate;
 use crate::propagators::nogoods::Nogood;
-use crate::propagators::nogoods::NogoodWatcher;
 use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
@@ -1122,14 +1121,6 @@ impl NogoodPropagator {
         watching_predicate: Predicate,
         id: NogoodId,
     ) {
-        let find_and_remove_watcher = |watch_list: &mut Vec<NogoodWatcher>, value: i32| {
-            let position = watch_list
-                .iter()
-                .position(|w| w.right_hand_side == value && w.nogood_id == id)
-                .expect("NogoodWatcher must be present.");
-            let _ = watch_list.swap_remove(position);
-        };
-
         match watching_predicate {
             Predicate::LowerBound {
                 domain_id,
