@@ -44,6 +44,9 @@ struct Args {
     #[arg(long = "fixed-search")]
     fixed_search: bool,
 
+    #[arg(long = "learned-constraint-logging")]
+    learned_constraint_logging: bool,
+
     #[arg(long = "verbose")]
     verbose: bool,
 
@@ -107,6 +110,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         args.skip_nogood_learning
     )?;
     writeln!(&mut general_logger, "Fixed search: {:?}", args.fixed_search)?;
+    writeln!(
+        &mut general_logger,
+        "Full clause logging: {:?}",
+        args.learned_constraint_logging
+    )?;
 
     // Configure logging
     configure_statistic_logging("$stat$", None, None, Some(stats_logger));
@@ -139,13 +147,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         proof_log: ProofLog::default(),
         conflict_resolver: if args.use_intsat { IntSat } else { UIP },
         learning_options,
+        learned_constraint_log: if args.learned_constraint_logging {
+            Some(Vec::new())
+        } else {
+            None
+        },
     };
 
     let time_limit = args.time_limit.map(Duration::from_millis);
 
     let instance_path = args.instance_path.to_str().expect("Invalid path");
 
-    flatzinc::solve(
+    let mut solver = flatzinc::solve(
         Solver::with_options(solver_options),
         instance_path,
         time_limit,
@@ -157,6 +170,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         output_logger,
     )?;
+
+    if args.learned_constraint_logging {
+        let Some(learned_constraint_log) = solver
+            .get_satisfaction_solver_mut()
+            .get_learned_constraint_log()
+        else {
+            unreachable!("Shouldn't be possible")
+        };
+
+        learned_constraint_log.iter().for_each(|item| {
+            println!(
+                "{} vs {} with original domains {:?}",
+                item.learned_constraint, item.learned_nogoods, item.domains_at_backjump
+            )
+        });
+    }
 
     Ok(())
 }

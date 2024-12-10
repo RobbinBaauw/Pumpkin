@@ -10,7 +10,7 @@ use crate::variables::IntegerVariable;
 use crate::variables::TransformableVariable;
 
 #[derive(Default, Debug, Clone)]
-pub(crate) struct LinearLessOrEqual {
+pub struct LinearLessOrEqual {
     pub lhs: Vec<(DomainId, i32)>,
     pub rhs: i32,
 }

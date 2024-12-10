@@ -56,7 +56,7 @@ pub(crate) fn solve(
     time_limit: Option<Duration>,
     options: FlatZincOptions,
     output_writer: &'static RwLock<Box<dyn Write + Send + Sync>>,
-) -> Result<(), FlatZincError> {
+) -> Result<Solver, FlatZincError> {
     let instance = File::open(instance)?;
 
     let unlock_writer = || output_writer.write().unwrap();
@@ -184,7 +184,7 @@ pub(crate) fn solve(
         solver.log_statistics()
     }
 
-    Ok(())
+    Ok(solver)
 }
 
 fn parse_and_compile(

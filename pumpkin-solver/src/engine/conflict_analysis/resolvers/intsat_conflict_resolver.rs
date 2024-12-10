@@ -2,6 +2,7 @@ use itertools::Itertools;
 use log::debug;
 
 use crate::basic_types::moving_averages::MovingAverage;
+use crate::basic_types::HashMap;
 use crate::basic_types::StoredConflictInfo;
 use crate::engine::conflict_analysis::ConflictAnalysisContext;
 use crate::engine::conflict_analysis::ConflictResolveResult;
@@ -10,6 +11,7 @@ use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::engine::conflict_analysis::ConflictResolver;
 use crate::engine::conflict_analysis::LearnedConstraint;
 use crate::engine::conflict_analysis::LearnedNogood;
+use crate::engine::constraint_satisfaction_solver::LearnedConstraintLogItem;
 use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::ResolutionResolver;
@@ -18,6 +20,7 @@ use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
 use crate::pumpkin_assert_ne_simple;
 use crate::pumpkin_assert_simple;
 use crate::variables::DomainId;
+use crate::variables::IntegerVariable;
 
 #[derive(Debug, Default)]
 pub(crate) struct IntSatConflictResolver {
@@ -407,7 +410,43 @@ impl ConflictResolver for IntSatConflictResolver {
 
                     // Running resolution resolver to update activities
                     // Ignore the result
-                    let _ = self.resolution_resolver.resolve_conflict(context);
+                    let res = self.resolution_resolver.resolve_conflict(context);
+                    if let Some(learned_constraint_log) = context.learned_constraint_log {
+                        let Some(Nogood(learned_nogood)) = res else {
+                            unreachable!("resolution should always learn something")
+                        };
+
+                        let learned_constraint = conflicting_constraint.clone();
+                        let learned_nogoods = learned_nogood.predicates;
+
+                        let constraint_vars = learned_constraint.lhs.iter().map(|(id, _)| *id);
+                        let nogood_vars = learned_nogoods.iter().map(|p| p.get_domain());
+                        let var_domains: HashMap<DomainId, (i32, i32)> = constraint_vars
+                            .chain(nogood_vars)
+                            .unique()
+                            .map(|v| {
+                                (
+                                    v,
+                                    (
+                                        v.lower_bound_at_trail_position(
+                                            context.assignments,
+                                            backjump_trail_level,
+                                        ),
+                                        v.upper_bound_at_trail_position(
+                                            context.assignments,
+                                            backjump_trail_level,
+                                        ),
+                                    ),
+                                )
+                            })
+                            .collect();
+
+                        learned_constraint_log.push(LearnedConstraintLogItem {
+                            learned_constraint,
+                            learned_nogoods: learned_nogoods.into(),
+                            domains_at_backjump: var_domains,
+                        });
+                    }
 
                     context
                         .counters
@@ -470,6 +509,7 @@ impl ConflictResolver for IntSatConflictResolver {
         let new_linear_prop = LinearLessOrEqualPropagator::new_learned(
             learned_constraint.constraint.to_vars().into_boxed_slice(),
             learned_constraint.constraint.rhs,
+            context.assignments,
         );
         let new_propagator_id = context.propagators.alloc(Box::new(new_linear_prop), None);
         let new_propagator = &mut context.propagators[new_propagator_id];

@@ -154,7 +154,7 @@ impl Solver {
         log_statistic_postfix();
     }
 
-    pub(crate) fn get_satisfaction_solver_mut(&mut self) -> &mut ConstraintSatisfactionSolver {
+    pub fn get_satisfaction_solver_mut(&mut self) -> &mut ConstraintSatisfactionSolver {
         &mut self.satisfaction_solver
     }
 }

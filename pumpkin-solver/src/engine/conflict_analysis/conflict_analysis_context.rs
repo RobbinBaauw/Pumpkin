@@ -7,6 +7,7 @@ use crate::basic_types::HashMap;
 use crate::basic_types::StoredConflictInfo;
 use crate::branching::Brancher;
 use crate::engine::constraint_satisfaction_solver::CSPSolverState;
+use crate::engine::constraint_satisfaction_solver::LearnedConstraintLogItem;
 use crate::engine::predicates::predicate::Predicate;
 use crate::engine::propagation::store::PropagatorStore;
 use crate::engine::propagation::CurrentNogood;
@@ -48,6 +49,8 @@ pub(crate) struct ConflictAnalysisContext<'a> {
 
     pub(crate) is_completing_proof: bool,
     pub(crate) unit_nogood_step_ids: &'a HashMap<Predicate, StepId>,
+
+    pub(crate) learned_constraint_log: &'a mut Option<Vec<LearnedConstraintLogItem>>,
 }
 
 impl Debug for ConflictAnalysisContext<'_> {

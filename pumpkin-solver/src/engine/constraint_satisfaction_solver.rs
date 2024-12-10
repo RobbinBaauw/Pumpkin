@@ -41,6 +41,7 @@ use crate::engine::conflict_analysis::ConflictResolver as Resolver;
 use crate::engine::cp::PropagatorQueue;
 use crate::engine::cp::WatchListCP;
 use crate::engine::predicates::predicate::Predicate;
+use crate::engine::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::propagation::CurrentNogood;
 use crate::engine::propagation::EnqueueDecision;
 use crate::engine::propagation::ExplanationContext;
@@ -184,6 +185,13 @@ pub enum ConflictResolver {
     IntSat,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct LearnedConstraintLogItem {
+    pub learned_constraint: LinearLessOrEqual,
+    pub learned_nogoods: PropositionalConjunction,
+    pub domains_at_backjump: HashMap<DomainId, (i32, i32)>,
+}
+
 /// Options for the [`Solver`] which determine how it behaves.
 #[derive(Debug)]
 pub struct SatisfactionSolverOptions {
@@ -199,6 +207,8 @@ pub struct SatisfactionSolverOptions {
     pub conflict_resolver: ConflictResolver,
     /// The options which influence the learning of the solver.
     pub learning_options: LearningOptions,
+    /// The full log of learned clauses & constraints
+    pub learned_constraint_log: Option<Vec<LearnedConstraintLogItem>>,
 }
 
 impl Default for SatisfactionSolverOptions {
@@ -210,6 +220,7 @@ impl Default for SatisfactionSolverOptions {
             proof_log: ProofLog::default(),
             conflict_resolver: ConflictResolver::default(),
             learning_options: LearningOptions::default(),
+            learned_constraint_log: None,
         }
     }
 }
@@ -375,6 +386,7 @@ impl ConstraintSatisfactionSolver {
             proof_log: &mut self.internal_parameters.proof_log,
             is_completing_proof: true,
             unit_nogood_step_ids: &self.unit_nogood_step_ids,
+            learned_constraint_log: &mut self.internal_parameters.learned_constraint_log,
         };
 
         let result = self
@@ -481,6 +493,10 @@ impl ConstraintSatisfactionSolver {
 
     pub fn get_random_generator(&mut self) -> &mut impl Random {
         &mut self.internal_parameters.random_generator
+    }
+
+    pub fn get_learned_constraint_log(&self) -> &Option<Vec<LearnedConstraintLogItem>> {
+        &self.internal_parameters.learned_constraint_log
     }
 
     pub fn log_statistics(&self) {
@@ -664,6 +680,7 @@ impl ConstraintSatisfactionSolver {
                     proof_log: &mut self.internal_parameters.proof_log,
                     is_completing_proof: false,
                     unit_nogood_step_ids: &self.unit_nogood_step_ids,
+                    learned_constraint_log: &mut self.internal_parameters.learned_constraint_log,
                 };
 
                 let mut resolver = ResolutionResolver::with_mode(AnalysisMode::AllDecision);
@@ -911,6 +928,7 @@ impl ConstraintSatisfactionSolver {
             proof_log: &mut self.internal_parameters.proof_log,
             is_completing_proof: false,
             unit_nogood_step_ids: &self.unit_nogood_step_ids,
+            learned_constraint_log: &mut self.internal_parameters.learned_constraint_log,
         };
 
         let resolve_result = self

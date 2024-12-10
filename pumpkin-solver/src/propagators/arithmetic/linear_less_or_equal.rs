@@ -14,6 +14,7 @@ use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::variables::IntegerVariable;
+use crate::engine::Assignments;
 use crate::predicate;
 use crate::pumpkin_assert_simple;
 use crate::statistics::Statistic;
@@ -22,6 +23,9 @@ use crate::statistics::StatisticLogger;
 create_statistics_struct!(LinearLessOrEqualStatistics {
     number_of_executions: u64,
     number_of_propagations: u64,
+
+    lhs_length: usize,
+    lhs_pb_vars: usize,
 });
 
 /// Propagator for the constraint `reif => \sum x_i <= c`.
@@ -59,9 +63,21 @@ where
         }
     }
 
-    pub(crate) fn new_learned(x: Box<[Var]>, c: i32) -> Self {
+    pub(crate) fn new_learned(x: Box<[Var]>, c: i32, assignments: &Assignments) -> Self {
         let mut new = Self::new(x, c);
         new.is_learned = true;
+
+        new.statistics.lhs_length = new.x.len();
+        new.statistics.lhs_pb_vars = new
+            .x
+            .iter()
+            .filter(|v| {
+                let lb_pb = v.lower_bound(assignments) == 0;
+                let ub_pb = v.upper_bound(assignments) == 1;
+                lb_pb && ub_pb
+            })
+            .count();
+
         new
     }
 

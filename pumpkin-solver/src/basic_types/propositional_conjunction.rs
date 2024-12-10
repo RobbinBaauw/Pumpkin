@@ -143,6 +143,7 @@ impl std::fmt::Display for PropositionalConjunction {
                 "{}",
                 self.predicates_in_conjunction
                     .iter()
+                    .sorted_by_key(|p| p.get_domain().id)
                     .map(|p| p.to_string())
                     .collect::<Vec<String>>()
                     .join("; ")
