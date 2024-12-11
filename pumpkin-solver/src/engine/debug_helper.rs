@@ -76,6 +76,7 @@ impl DebugHelper {
                 &mut assignments_clone,
                 &mut reason_store,
                 &mut semantic_minimiser,
+                None,
                 PropagatorId(propagator_id as u32),
             );
             let propagation_status_cp = propagator.debug_propagate_from_scratch(context);
@@ -224,6 +225,7 @@ impl DebugHelper {
                     &mut assignments_clone,
                     &mut reason_store,
                     &mut semantic_minimiser,
+                    None,
                     propagator_id,
                 );
                 let debug_propagation_status_cp = propagator.debug_propagate_from_scratch(context);
@@ -333,6 +335,7 @@ impl DebugHelper {
                         &mut assignments_clone,
                         &mut reason_store,
                         &mut semantic_minimiser,
+                        None,
                         propagator_id,
                     );
                     let debug_propagation_status_cp =
@@ -393,6 +396,7 @@ impl DebugHelper {
                 &mut assignments_clone,
                 &mut reason_store,
                 &mut semantic_minimiser,
+                None,
                 propagator_id,
             );
             let debug_propagation_status_cp = propagator.debug_propagate_from_scratch(context);
@@ -451,6 +455,7 @@ impl DebugHelper {
                     &mut assignments_clone,
                     &mut reason_store,
                     &mut semantic_minimiser,
+                    None,
                     propagator_id,
                 );
                 let debug_propagation_status_cp = propagator.debug_propagate_from_scratch(context);

@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use log::debug;
 
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::HashMap;
 use crate::basic_types::StoredConflictInfo;
@@ -11,14 +12,13 @@ use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::engine::conflict_analysis::ConflictResolver;
 use crate::engine::conflict_analysis::LearnedConstraint;
 use crate::engine::conflict_analysis::LearnedNogood;
-use crate::engine::constraint_satisfaction_solver::LearnedConstraintLogItem;
-use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
 use crate::pumpkin_assert_ne_simple;
 use crate::pumpkin_assert_simple;
+use crate::statistics::learned_constraint_log::LearnedConstraintLogItem;
 use crate::variables::DomainId;
 use crate::variables::IntegerVariable;
 
@@ -409,9 +409,8 @@ impl ConflictResolver for IntSatConflictResolver {
                     );
 
                     // Running resolution resolver to update activities
-                    // Ignore the result
                     let res = self.resolution_resolver.resolve_conflict(context);
-                    if let Some(learned_constraint_log) = context.learned_constraint_log {
+                    if let Some(learned_constraint_log) = &mut context.learned_constraint_log {
                         let Some(Nogood(learned_nogood)) = res else {
                             unreachable!("resolution should always learn something")
                         };
@@ -441,7 +440,8 @@ impl ConflictResolver for IntSatConflictResolver {
                             })
                             .collect();
 
-                        learned_constraint_log.push(LearnedConstraintLogItem {
+                        learned_constraint_log.log_item(LearnedConstraintLogItem::NewConstraint {
+                            backjump_level,
                             learned_constraint,
                             learned_nogoods: learned_nogoods.into(),
                             domains_at_backjump: var_domains,
@@ -513,6 +513,13 @@ impl ConflictResolver for IntSatConflictResolver {
         );
         let new_propagator_id = context.propagators.alloc(Box::new(new_linear_prop), None);
         let new_propagator = &mut context.propagators[new_propagator_id];
+
+        if let Some(learned_constraint_log) = &mut context.learned_constraint_log {
+            learned_constraint_log.log_item(LearnedConstraintLogItem::NewPropagator {
+                propagator_id: new_propagator_id.0,
+                learned_constraint: learned_constraint.constraint.clone(),
+            });
+        }
 
         let mut initialisation_context = PropagatorInitialisationContext::new(
             &mut context.watch_list_cp,
@@ -589,12 +596,12 @@ fn gcd(a: i32, b: i32) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
     use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutError::Contradiction;
     use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutError::NothingLearned;
     use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutError::Overflow;
     use crate::engine::conflict_analysis::resolvers::intsat_conflict_resolver::CutSuccess;
     use crate::engine::conflict_analysis::IntSatConflictResolver;
-    use crate::engine::propagation::linear_less_or_equal::LinearLessOrEqual;
     use crate::variables::DomainId;
 
     fn construct_test_vars() -> [DomainId; 5] {

@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Run intsat_benchmarks" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="buildProfileId" value="dev" />
-    <option name="command" value="run --package pumpkin-solver --bin intsat_benchmarks -- --use-intsat $PROJECT_DIR$/pumpkin-solver/benches/benchmarks-set/mario/mario_mario_n_medium_3.fzn" />
+    <option name="command" value="run --package pumpkin-solver --bin intsat_benchmarks -- --use-intsat --learned-constraint-logging $PROJECT_DIR$/pumpkin-solver/benches/examples-set/constrained_connected/constrained_connected_constrained_connected.fzn" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$" />
     <envs />
     <option name="emulateTerminal" value="true" />

@@ -8,6 +8,7 @@ use crate::engine::variables::Literal;
 use crate::engine::Assignments;
 use crate::engine::EmptyDomain;
 use crate::pumpkin_assert_simple;
+use crate::statistics::learned_constraint_log::LearnedConstraintLog;
 
 /// [`PropagationContext`] is passed to propagators during propagation.
 /// It may be queried to retrieve information about the current variable domains such as the
@@ -34,6 +35,7 @@ pub(crate) struct PropagationContextMut<'a> {
     pub(crate) reason_store: &'a mut ReasonStore,
     pub(crate) propagator_id: PropagatorId,
     pub(crate) semantic_minimiser: &'a mut SemanticMinimiser,
+    pub(crate) learned_constraint_log: Option<&'a mut LearnedConstraintLog>,
     reification_literal: Option<Literal>,
 }
 
@@ -42,6 +44,7 @@ impl<'a> PropagationContextMut<'a> {
         assignments: &'a mut Assignments,
         reason_store: &'a mut ReasonStore,
         semantic_minimiser: &'a mut SemanticMinimiser,
+        learned_constraint_log: Option<&'a mut LearnedConstraintLog>,
         propagator_id: PropagatorId,
     ) -> Self {
         PropagationContextMut {
@@ -49,6 +52,7 @@ impl<'a> PropagationContextMut<'a> {
             reason_store,
             propagator_id,
             semantic_minimiser,
+            learned_constraint_log,
             reification_literal: None,
         }
     }

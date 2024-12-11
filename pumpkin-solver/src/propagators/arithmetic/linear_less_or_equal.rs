@@ -1,9 +1,9 @@
 use itertools::Itertools;
 
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::basic_types::PropagationStatusCP;
 use crate::basic_types::PropositionalConjunction;
 use crate::create_statistics_struct;
-use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::cp::propagation::ReadDomains;
 use crate::engine::domain_events::DomainEvents;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
@@ -17,15 +17,14 @@ use crate::engine::variables::IntegerVariable;
 use crate::engine::Assignments;
 use crate::predicate;
 use crate::pumpkin_assert_simple;
+use crate::statistics::learned_constraint_log::LearnedConstraintLogItem;
 use crate::statistics::Statistic;
 use crate::statistics::StatisticLogger;
 
 create_statistics_struct!(LinearLessOrEqualStatistics {
     number_of_executions: u64,
     number_of_propagations: u64,
-
-    lhs_length: usize,
-    lhs_pb_vars: usize,
+    number_of_pb_vars: u64,
 });
 
 /// Propagator for the constraint `reif => \sum x_i <= c`.
@@ -67,8 +66,7 @@ where
         let mut new = Self::new(x, c);
         new.is_learned = true;
 
-        new.statistics.lhs_length = new.x.len();
-        new.statistics.lhs_pb_vars = new
+        new.statistics.number_of_pb_vars = new
             .x
             .iter()
             .filter(|v| {
@@ -76,7 +74,7 @@ where
                 let ub_pb = v.upper_bound(assignments) == 1;
                 lb_pb && ub_pb
             })
-            .count();
+            .count() as u64;
 
         new
     }
@@ -126,6 +124,14 @@ where
             Err(conjunction)
         } else {
             Ok(())
+        }
+    }
+
+    fn log_conflict(&self, context: &mut PropagationContextMut) {
+        if let Some(log) = &mut context.learned_constraint_log {
+            log.log_item(LearnedConstraintLogItem::ConstraintError {
+                propagator_id: context.propagator_id.0,
+            })
         }
     }
 }
@@ -231,6 +237,7 @@ where
             if self.statistics.number_of_executions == 1 {
                 self.errored_initially = true;
             }
+            self.log_conflict(&mut context);
             return Err(conjunction.into());
         }
 
@@ -245,6 +252,7 @@ where
                     // This means that the lower-bounds of the current variables will always be
                     // higher than the right-hand side (with a maximum value of i32). We thus
                     // return a conflict
+                    self.log_conflict(&mut context);
                     return Err(self
                         .create_conflict_reason(context.as_readonly(), None)
                         .into());
@@ -281,6 +289,7 @@ where
                     // This means that the upper-bound of the current variable is always higher
                     // than this bound. This means that there is a conflict, as the upper
                     // bound would have to be set to i32::MIN.
+                    self.log_conflict(&mut context);
                     return Err(self
                         .create_conflict_reason(context.as_readonly(), Some(i))
                         .into());
@@ -288,8 +297,15 @@ where
             };
 
             if context.upper_bound(x_i) > bound {
-                let reason = self.create_conflict_reason(context.as_readonly(), Some(i));
                 self.statistics.number_of_propagations += 1;
+
+                if let Some(log) = &mut context.learned_constraint_log {
+                    log.log_item(LearnedConstraintLogItem::ConstraintPropagation {
+                        propagator_id: context.propagator_id.0,
+                    })
+                }
+
+                let reason = self.create_conflict_reason(context.as_readonly(), Some(i));
                 context.set_upper_bound(x_i, bound, reason)?;
             }
         }

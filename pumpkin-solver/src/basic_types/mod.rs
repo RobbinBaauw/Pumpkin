@@ -2,6 +2,7 @@ mod constraint_operation_error;
 mod csp_solver_execution_flag;
 mod function;
 mod hash_structures;
+pub(crate) mod linear_less_or_equal;
 pub(crate) mod moving_averages;
 mod predicate_id_generator;
 mod propagation_status_cp;

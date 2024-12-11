@@ -3,12 +3,12 @@ use downcast_rs::Downcast;
 
 use super::explanation_context::ExplanationContext;
 use super::propagator_initialisation_context::PropagatorInitialisationContext;
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 #[cfg(doc)]
 use crate::basic_types::Inconsistency;
 use crate::basic_types::PropagationStatusCP;
 #[cfg(doc)]
 use crate::create_statistics_struct;
-use crate::engine::cp::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::propagation::local_id::LocalId;
 use crate::engine::propagation::propagation_context::PropagationContext;

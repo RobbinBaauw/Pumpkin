@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::fmt::Debug;
 use std::fs::OpenOptions;
 use std::io::stdout;
 use std::io::Write;
@@ -20,6 +21,7 @@ use pumpkin_solver::options::RestartOptions;
 use pumpkin_solver::options::SolverOptions;
 use pumpkin_solver::proof::ProofLog;
 use pumpkin_solver::statistics::configure_statistic_logging;
+use pumpkin_solver::statistics::learned_constraint_log::LearnedConstraintLog;
 use pumpkin_solver::Solver;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
@@ -112,7 +114,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     writeln!(&mut general_logger, "Fixed search: {:?}", args.fixed_search)?;
     writeln!(
         &mut general_logger,
-        "Full clause logging: {:?}",
+        "Learned constraint logging: {:?}",
         args.learned_constraint_logging
     )?;
 
@@ -148,7 +150,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         conflict_resolver: if args.use_intsat { IntSat } else { UIP },
         learning_options,
         learned_constraint_log: if args.learned_constraint_logging {
-            Some(Vec::new())
+            Some(LearnedConstraintLog::default())
         } else {
             None
         },
@@ -179,12 +181,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             unreachable!("Shouldn't be possible")
         };
 
-        learned_constraint_log.iter().for_each(|item| {
-            println!(
-                "{} vs {} with original domains {:?}",
-                item.learned_constraint, item.learned_nogoods, item.domains_at_backjump
-            )
-        });
+        let mut learned_constraints_logger = if args.log_to_files {
+            open_file("learned_constraints")
+        } else {
+            Box::new(stdout())
+        };
+
+        write!(learned_constraints_logger, "{learned_constraint_log}").expect("Logging failed");
     }
 
     Ok(())

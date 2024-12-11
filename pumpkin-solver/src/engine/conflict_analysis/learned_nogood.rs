@@ -1,4 +1,4 @@
-use crate::engine::propagation::linear_less_or_equal::LinearLessOrEqual;
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::predicates::Predicate;
 
 #[derive(Clone, Debug)]

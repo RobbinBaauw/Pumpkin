@@ -41,7 +41,6 @@ use crate::engine::conflict_analysis::ConflictResolver as Resolver;
 use crate::engine::cp::PropagatorQueue;
 use crate::engine::cp::WatchListCP;
 use crate::engine::predicates::predicate::Predicate;
-use crate::engine::propagation::linear_less_or_equal::LinearLessOrEqual;
 use crate::engine::propagation::CurrentNogood;
 use crate::engine::propagation::EnqueueDecision;
 use crate::engine::propagation::ExplanationContext;
@@ -65,6 +64,7 @@ use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_extreme;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
+use crate::statistics::learned_constraint_log::LearnedConstraintLog;
 use crate::statistics::statistic_logger::StatisticLogger;
 use crate::statistics::statistic_logging::should_log_statistics;
 use crate::statistics::Statistic;
@@ -185,13 +185,6 @@ pub enum ConflictResolver {
     IntSat,
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct LearnedConstraintLogItem {
-    pub learned_constraint: LinearLessOrEqual,
-    pub learned_nogoods: PropositionalConjunction,
-    pub domains_at_backjump: HashMap<DomainId, (i32, i32)>,
-}
-
 /// Options for the [`Solver`] which determine how it behaves.
 #[derive(Debug)]
 pub struct SatisfactionSolverOptions {
@@ -208,7 +201,7 @@ pub struct SatisfactionSolverOptions {
     /// The options which influence the learning of the solver.
     pub learning_options: LearningOptions,
     /// The full log of learned clauses & constraints
-    pub learned_constraint_log: Option<Vec<LearnedConstraintLogItem>>,
+    pub learned_constraint_log: Option<LearnedConstraintLog>,
 }
 
 impl Default for SatisfactionSolverOptions {
@@ -386,7 +379,9 @@ impl ConstraintSatisfactionSolver {
             proof_log: &mut self.internal_parameters.proof_log,
             is_completing_proof: true,
             unit_nogood_step_ids: &self.unit_nogood_step_ids,
-            learned_constraint_log: &mut self.internal_parameters.learned_constraint_log,
+            learned_constraint_log: Option::from(
+                &mut self.internal_parameters.learned_constraint_log,
+            ),
         };
 
         let result = self
@@ -495,7 +490,7 @@ impl ConstraintSatisfactionSolver {
         &mut self.internal_parameters.random_generator
     }
 
-    pub fn get_learned_constraint_log(&self) -> &Option<Vec<LearnedConstraintLogItem>> {
+    pub fn get_learned_constraint_log(&self) -> &Option<LearnedConstraintLog> {
         &self.internal_parameters.learned_constraint_log
     }
 
@@ -680,7 +675,9 @@ impl ConstraintSatisfactionSolver {
                     proof_log: &mut self.internal_parameters.proof_log,
                     is_completing_proof: false,
                     unit_nogood_step_ids: &self.unit_nogood_step_ids,
-                    learned_constraint_log: &mut self.internal_parameters.learned_constraint_log,
+                    learned_constraint_log: Option::from(
+                        &mut self.internal_parameters.learned_constraint_log,
+                    ),
                 };
 
                 let mut resolver = ResolutionResolver::with_mode(AnalysisMode::AllDecision);
@@ -928,7 +925,9 @@ impl ConstraintSatisfactionSolver {
             proof_log: &mut self.internal_parameters.proof_log,
             is_completing_proof: false,
             unit_nogood_step_ids: &self.unit_nogood_step_ids,
-            learned_constraint_log: &mut self.internal_parameters.learned_constraint_log,
+            learned_constraint_log: Option::from(
+                &mut self.internal_parameters.learned_constraint_log,
+            ),
         };
 
         let resolve_result = self
@@ -999,6 +998,7 @@ impl ConstraintSatisfactionSolver {
             &mut self.assignments,
             &mut self.reason_store,
             &mut self.semantic_minimiser,
+            Option::from(&mut self.internal_parameters.learned_constraint_log),
             Self::get_nogood_propagator_id(),
         );
 
@@ -1189,6 +1189,7 @@ impl ConstraintSatisfactionSolver {
                     &mut self.assignments,
                     &mut self.reason_store,
                     &mut self.semantic_minimiser,
+                    Option::from(&mut self.internal_parameters.learned_constraint_log),
                     propagator_id,
                 );
                 propagator.propagate(context)
@@ -1257,6 +1258,11 @@ impl ConstraintSatisfactionSolver {
         // Record statistics.
         self.solver_statistics.engine_statistics.num_conflicts +=
             self.state.is_conflicting() as u64;
+
+        if let Some(l) = &mut self.internal_parameters.learned_constraint_log {
+            l.update_num_conflicts(self.solver_statistics.engine_statistics.num_conflicts)
+        }
+
         self.solver_statistics.engine_statistics.num_propagations +=
             self.assignments.num_trail_entries() as u64 - num_assigned_variables_old as u64;
         // Only check fixed point propagation if there was no reported conflict,
@@ -1441,6 +1447,7 @@ impl ConstraintSatisfactionSolver {
             &mut self.assignments,
             &mut self.reason_store,
             &mut self.semantic_minimiser,
+            Option::from(&mut self.internal_parameters.learned_constraint_log),
             Self::get_nogood_propagator_id(),
         );
         let nogood_propagator_id = Self::get_nogood_propagator_id();

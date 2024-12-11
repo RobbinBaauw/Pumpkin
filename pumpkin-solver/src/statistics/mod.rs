@@ -1,4 +1,5 @@
 //! Contains structures related to the statistic logging of the [`Solver`]
+pub mod learned_constraint_log;
 pub(crate) mod statistic_logger;
 pub(crate) mod statistic_logging;
 
