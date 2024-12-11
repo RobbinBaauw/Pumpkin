@@ -1,6 +1,7 @@
 from pathlib import Path
 import pickle
 
+from learned_constraint_analysis import run_learned_constraint_analysis
 from parse_output_files import parse_results_dir, Program, combine_run_results, Results
 from print_output import results_to_table, table_to_latex
 
@@ -37,15 +38,31 @@ def parse_examples_results():
         pickle.dump(results, results_out, pickle.HIGHEST_PROTOCOL)
 
 
+def parse_learned_constraints():
+    intsat_results = parse_results_dir(BASE_DIR / "1" / "0")
+
+    assert all(map(lambda r: r.program == Program.INTSAT_PUMPKIN, intsat_results))
+
+    results = combine_run_results(intsat_results)
+    with open('results_out_learned_constraints.pkl', 'wb') as results_out:
+        pickle.dump(results, results_out, pickle.HIGHEST_PROTOCOL)
+
+
 if __name__ == "__main__":
-    parse_examples_results()
-    with open('results_out_examples.pkl', 'rb') as results_file:
-        results: Results = pickle.load(results_file)
-    headers, data = results_to_table(results)
-    print(table_to_latex(headers, data))
+    # parse_examples_results()
+    # with open('results_out_examples.pkl', 'rb') as results_file:
+    #     results: Results = pickle.load(results_file)
+    # headers, data = results_to_table(results)
+    # print(table_to_latex(headers, data))
 
     # parse_bench_results()
     # with open('results_out_bench.pkl', 'rb') as results_file:
     #     results: Results = pickle.load(results_file)
     # headers, data = results_to_table(results)
     # print(table_to_latex(headers, data, split_size=90))
+
+    # parse_learned_constraints()
+    with open('results_out_learned_constraints.pkl', 'rb') as results_file:
+        results: Results = pickle.load(results_file)
+    run_learned_constraint_analysis(results)
+    # print(results)

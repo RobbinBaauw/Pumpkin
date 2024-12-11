@@ -4,6 +4,7 @@ use crate::predicates::Predicate;
 #[derive(Clone, Debug)]
 pub(crate) struct LearnedConstraint {
     pub(crate) constraint: LinearLessOrEqual,
+    pub(crate) alternative_nogood: Vec<Predicate>,
     pub(crate) backjump_level: usize,
 }
 

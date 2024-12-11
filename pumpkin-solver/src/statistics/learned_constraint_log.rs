@@ -1,10 +1,27 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use itertools::Itertools;
+
 use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::basic_types::HashMap;
 use crate::basic_types::PropositionalConjunction;
 use crate::variables::DomainId;
+
+#[derive(Clone, Debug)]
+pub struct LearnedConstraintDomains(pub(crate) HashMap<DomainId, (i32, i32)>);
+
+impl Display for LearnedConstraintDomains {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            self.0
+                .iter()
+                .map(|(id, domain)| format!("{}:({},{})", id.id, domain.0, domain.1))
+                .join(" ")
+                .as_str(),
+        )
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum LearnedConstraintLogItem {
@@ -12,7 +29,6 @@ pub enum LearnedConstraintLogItem {
         backjump_level: usize,
         learned_constraint: LinearLessOrEqual,
         learned_nogoods: PropositionalConjunction,
-        domains_at_backjump: HashMap<DomainId, (i32, i32)>,
     },
     NewPropagator {
         propagator_id: u32,
@@ -20,9 +36,12 @@ pub enum LearnedConstraintLogItem {
     },
     ConstraintPropagation {
         propagator_id: u32,
+        propagated_var: DomainId,
+        domains_at_propagation: LearnedConstraintDomains,
     },
     ConstraintError {
         propagator_id: u32,
+        domains_at_error: LearnedConstraintDomains,
     },
 }
 
@@ -33,26 +52,34 @@ impl Display for LearnedConstraintLogItem {
             LearnedConstraintLogItem::NewConstraint {
                 learned_constraint,
                 learned_nogoods,
-                domains_at_backjump,
                 backjump_level,
             } => {
                 write!(
                     f,
-                    "NC,,{learned_constraint},{learned_nogoods},{:?},{backjump_level}",
-                    domains_at_backjump
+                    "NC|{learned_constraint}|{learned_nogoods}|{backjump_level}",
                 )
             }
             LearnedConstraintLogItem::NewPropagator {
                 propagator_id,
                 learned_constraint,
             } => {
-                write!(f, "NP,{propagator_id},{learned_constraint},,,")
+                write!(f, "NP|{propagator_id}|{learned_constraint}")
             }
-            LearnedConstraintLogItem::ConstraintPropagation { propagator_id } => {
-                write!(f, "CP,{propagator_id},,,,")
+            LearnedConstraintLogItem::ConstraintPropagation {
+                propagator_id,
+                domains_at_propagation,
+                propagated_var,
+            } => {
+                write!(
+                    f,
+                    "CP|{propagator_id}|{domains_at_propagation}|{propagated_var}"
+                )
             }
-            LearnedConstraintLogItem::ConstraintError { propagator_id } => {
-                write!(f, "CE,{propagator_id},,,,")
+            LearnedConstraintLogItem::ConstraintError {
+                propagator_id,
+                domains_at_error,
+            } => {
+                write!(f, "CE|{propagator_id}|{domains_at_error}")
             }
         }
     }
@@ -78,6 +105,6 @@ impl Display for LearnedConstraintLog {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.items
             .iter()
-            .try_for_each(|(conflict_count, item)| writeln!(f, "{conflict_count},{item}"))
+            .try_for_each(|(conflict_count, item)| writeln!(f, "{conflict_count}|{item}"))
     }
 }

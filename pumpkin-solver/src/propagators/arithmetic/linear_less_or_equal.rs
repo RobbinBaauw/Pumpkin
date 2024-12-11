@@ -16,7 +16,9 @@ use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::variables::IntegerVariable;
 use crate::engine::Assignments;
 use crate::predicate;
+use crate::predicates::Predicate;
 use crate::pumpkin_assert_simple;
+use crate::statistics::learned_constraint_log::LearnedConstraintDomains;
 use crate::statistics::learned_constraint_log::LearnedConstraintLogItem;
 use crate::statistics::Statistic;
 use crate::statistics::StatisticLogger;
@@ -41,6 +43,8 @@ pub(crate) struct LinearLessOrEqualPropagator<Var> {
     is_learned: bool,
     errored_initially: bool,
     statistics: LinearLessOrEqualStatistics,
+
+    alternative_nogood: Vec<Predicate>,
 }
 
 impl<Var: 'static> LinearLessOrEqualPropagator<Var>
@@ -59,12 +63,19 @@ where
             is_learned: false,
             errored_initially: false,
             statistics: LinearLessOrEqualStatistics::default(),
+            alternative_nogood: vec![],
         }
     }
 
-    pub(crate) fn new_learned(x: Box<[Var]>, c: i32, assignments: &Assignments) -> Self {
+    pub(crate) fn new_learned(
+        x: Box<[Var]>,
+        c: i32,
+        assignments: &Assignments,
+        alternative_nogood: Vec<Predicate>,
+    ) -> Self {
         let mut new = Self::new(x, c);
         new.is_learned = true;
+        new.alternative_nogood = alternative_nogood;
 
         new.statistics.number_of_pb_vars = new
             .x
@@ -127,11 +138,36 @@ where
         }
     }
 
+    fn compute_var_domains(&self, context: &PropagationContextMut) -> LearnedConstraintDomains {
+        let nogood_vars = self.alternative_nogood.iter().map(|p| p.get_domain());
+        let constraint_vars = self.x.iter().map(|v| v.get_domain_id());
+
+        LearnedConstraintDomains(
+            nogood_vars
+                .chain(constraint_vars)
+                .unique()
+                .map(|v| {
+                    (
+                        v,
+                        (
+                            v.lower_bound(context.assignments),
+                            v.upper_bound(context.assignments),
+                        ),
+                    )
+                })
+                .collect(),
+        )
+    }
+
     fn log_conflict(&self, context: &mut PropagationContextMut) {
-        if let Some(log) = &mut context.learned_constraint_log {
-            log.log_item(LearnedConstraintLogItem::ConstraintError {
-                propagator_id: context.propagator_id.0,
-            })
+        if self.is_learned {
+            let domains_at_error = self.compute_var_domains(context);
+            if let Some(log) = &mut context.learned_constraint_log {
+                log.log_item(LearnedConstraintLogItem::ConstraintError {
+                    propagator_id: context.propagator_id.0,
+                    domains_at_error,
+                })
+            }
         }
     }
 }
@@ -299,10 +335,15 @@ where
             if context.upper_bound(x_i) > bound {
                 self.statistics.number_of_propagations += 1;
 
-                if let Some(log) = &mut context.learned_constraint_log {
-                    log.log_item(LearnedConstraintLogItem::ConstraintPropagation {
-                        propagator_id: context.propagator_id.0,
-                    })
+                if self.is_learned {
+                    let domains_at_propagation = self.compute_var_domains(&context);
+                    if let Some(log) = &mut context.learned_constraint_log {
+                        log.log_item(LearnedConstraintLogItem::ConstraintPropagation {
+                            propagator_id: context.propagator_id.0,
+                            propagated_var: x_i.get_domain_id(),
+                            domains_at_propagation,
+                        })
+                    }
                 }
 
                 let reason = self.create_conflict_reason(context.as_readonly(), Some(i));

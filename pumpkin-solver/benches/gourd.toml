@@ -22,11 +22,11 @@ mem_per_cpu = 16384
 
 [program.intsat-learn]
 binary = "./intsat_benchmarks"
-arguments = ["--log-to-files", "--use-intsat", "--time-limit", "3600000"]
+arguments = ["--learned-constraint-logging", "--log-to-files", "--use-intsat", "--time-limit", "3600000"]
 
-[program.intsat-nolearn]
-binary = "./intsat_benchmarks"
-arguments = ["--log-to-files", "--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
+#[program.intsat-nolearn]
+#binary = "./intsat_benchmarks"
+#arguments = ["--learned-constraint-logging", "--log-to-files", "--use-intsat", "--skip-nogood-learning", "--time-limit", "3600000"]
 
 #[program.intsat-og]
 #binary = "./intsat_og"

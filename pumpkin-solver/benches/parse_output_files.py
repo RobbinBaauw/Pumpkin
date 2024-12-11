@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from pip._vendor import tomli
 
 
@@ -59,10 +59,60 @@ class Outputs:
     outputs: Optional[List[List[str]]]
 
 
+ConflictId = int
+VarId = int
+VarScale = int
+VarBounds = Tuple[int, int]
+
+
+@dataclass
+class LearnedConstraintPropagation:
+    conflict_nr: int
+    var_id: int
+    var_domains: Dict[VarId, VarBounds]
+
+
+@dataclass
+class LearnedConstraintError:
+    conflict_nr: int
+    var_domains: Dict[VarId, VarBounds]
+
+
+@dataclass
+class LearnedConstraintInequality:
+    lhs: List[Tuple[VarId, VarScale]]
+    rhs: int
+
+    def __str__(self):
+        lhs_str = " + ".join(map(lambda i: f"{i[1]}x{i[0]}", self.lhs))
+        return f"{lhs_str} <= {self.rhs}"
+
+
+@dataclass
+class LearnedConstraintNogoodTerm:
+    var_id: VarId
+    op: str
+    value: VarScale
+
+    def __str__(self):
+        return f"x{self.var_id} {self.op} {self.value}"
+
+
+@dataclass
+class LearnedConstraint:
+    propagator_id: int
+    propagates_at_conflict: List[LearnedConstraintPropagation]
+    errors_at_conflict: List[LearnedConstraintError]
+    constraint: LearnedConstraintInequality
+    nogoods: List[LearnedConstraintNogoodTerm]
+    backjump_level: int
+
+
 @dataclass
 class RunData:
     stats: Stats
     outputs: Outputs
+    learned_constraints: Dict[int, LearnedConstraint]
 
 
 @dataclass
@@ -264,6 +314,78 @@ def parse_outputs(outputs_path: Path):
     return Outputs(result, outputs)
 
 
+def parse_learned_constraints(learned_constraints_path: Path):
+    with open(learned_constraints_path) as learned_constraints_file:
+        learned_constraints_lines = learned_constraints_file.read().split("\n")
+
+    learned_constraints: Dict[int, LearnedConstraint] = {}
+
+    def parse_constraint_term(term):
+        scale, var_id = term.split("x")
+        if scale == '': scale = 1
+        elif scale == '-': scale = -1
+        else: scale = int(scale)
+
+        return int(var_id), scale
+
+    def parse_nogood_term(nogood: str):
+        var, op, value = nogood.replace('[', '').replace(']','').split(" ")
+        return LearnedConstraintNogoodTerm(int(var.replace('x', '')), op, int(value))
+
+    def parse_domain(domain: str):
+        domain_res = re.search("^(.+):\((.+),(.+)\)$", domain)
+        var_id, lb, ub = int(domain_res.group(1)), int(domain_res.group(2)), int(domain_res.group(3))
+        return var_id, (lb, ub)
+
+    for line_i, line in enumerate(learned_constraints_lines):
+        if len(line.strip()) == 0:
+            continue
+
+        event = line.split("|")[1]
+
+        match event:
+            case 'NC':
+                conflict_nr, event, constraint, nogoods, backjump_level = line.split("|")
+                _, event_next, prop_id_next, constraint_next = learned_constraints_lines[line_i+1].split("|")
+                if event_next != 'NP' or constraint != constraint_next:
+                    raise RuntimeError(f"Next line unexpected")
+
+                lhs, rhs = constraint.split(" <= ")
+                terms = list(map(parse_constraint_term, lhs.split(" + ")))
+                constraint = LearnedConstraintInequality(terms, int(rhs))
+
+                nogoods_parsed = list(map(parse_nogood_term, nogoods.split("; ")))
+
+                learned_constraints[int(prop_id_next)] = LearnedConstraint(
+                    int(prop_id_next),
+                    [],
+                    [],
+                    constraint,
+                    nogoods_parsed,
+                    int(backjump_level)
+                )
+
+            case 'NP':
+                pass
+
+            case 'CP':
+                conflict_nr, event, prop_id, domains, propagated_var = line.split("|")
+                domains_parsed = dict(map(parse_domain, domains.split(" ")))
+
+                learned_constraints[int(prop_id)].propagates_at_conflict.append(LearnedConstraintPropagation(
+                    int(conflict_nr),
+                    int(propagated_var.replace("x", "")),
+                    domains_parsed,
+                ))
+
+            case 'CE':
+                conflict_nr, event, prop_id, domains = line.split("|")
+                domains_parsed = dict(map(parse_domain, domains.split(" ")))
+                learned_constraints[int(prop_id)].errors_at_conflict.append(LearnedConstraintError(int(conflict_nr), domains_parsed))
+
+    return learned_constraints
+
+
 def parse_intsat(stderr_path: Path):
     with open(stderr_path) as stderr_file:
         output = stderr_file.read().split("\n")
@@ -308,7 +430,8 @@ def parse_intsat(stderr_path: Path):
             0,
             dict()
         ),
-        Outputs(Result.SUCCESS, None)
+        Outputs(Result.SUCCESS, None),
+        {}
     )
 
 
@@ -340,7 +463,8 @@ def parse_results_dir(results_dir: Path):
                 if stderr is None:
                     stats = parse_stat_file(exp_dir / "run_stats")
                     outputs = parse_outputs(exp_dir / "run_outputs")
-                    run_data = RunData(stats, outputs)
+                    learned_constraints = parse_learned_constraints(exp_dir / "learned_constraints")
+                    run_data = RunData(stats, outputs, learned_constraints)
                 else:
                     run_data = None
 
