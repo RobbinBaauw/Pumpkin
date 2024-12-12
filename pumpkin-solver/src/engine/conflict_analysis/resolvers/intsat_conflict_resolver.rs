@@ -20,6 +20,8 @@ use crate::pumpkin_assert_simple;
 use crate::statistics::learned_constraint_log::LearnedConstraintLogItem;
 use crate::variables::DomainId;
 
+static LOG_NOGOODS: bool = false;
+
 #[derive(Debug, Default)]
 pub(crate) struct IntSatConflictResolver {
     resolution_resolver: ResolutionResolver,
@@ -333,6 +335,7 @@ impl ConflictResolver for IntSatConflictResolver {
                     debug!("==>==> Contradiction, unsat!");
                     return Some(Nogood(LearnedNogood {
                         predicates: vec![Predicate::trivially_true()],
+                        alternative_constraint: None,
                         backjump_level: 0,
                     }));
                 }
@@ -408,15 +411,14 @@ impl ConflictResolver for IntSatConflictResolver {
 
                     // Running resolution resolver to update activities
                     let res = self.resolution_resolver.resolve_conflict(context);
-                    let Some(Nogood(learned_nogood)) = res else {
+                    let Some(Nogood(mut learned_nogood)) = res else {
                         unreachable!("resolution should always learn something")
                     };
 
                     if let Some(learned_constraint_log) = &mut context.learned_constraint_log {
                         let learned_constraint = conflicting_constraint.clone();
 
-                        learned_constraint_log.log_item(LearnedConstraintLogItem::NewConstraint {
-                            backjump_level,
+                        learned_constraint_log.log_item(LearnedConstraintLogItem::ConflictResult {
                             learned_constraint,
                             learned_nogoods: learned_nogood.predicates.clone().into(),
                         });
@@ -444,11 +446,16 @@ impl ConflictResolver for IntSatConflictResolver {
                                 .unwrap() as u64,
                         );
 
-                    return Some(Constraint(LearnedConstraint {
-                        constraint: conflicting_constraint,
-                        alternative_nogood: learned_nogood.predicates,
-                        backjump_level,
-                    }));
+                    return if LOG_NOGOODS {
+                        learned_nogood.alternative_constraint = Some(conflicting_constraint);
+                        Some(Nogood(learned_nogood))
+                    } else {
+                        Some(Constraint(LearnedConstraint {
+                            constraint: conflicting_constraint,
+                            alternative_nogood: learned_nogood.predicates,
+                            backjump_level,
+                        }))
+                    }
                 }
             }
         }
@@ -490,11 +497,13 @@ impl ConflictResolver for IntSatConflictResolver {
         let new_propagator_id = context.propagators.alloc(Box::new(new_linear_prop), None);
         let new_propagator = &mut context.propagators[new_propagator_id];
 
-        if let Some(learned_constraint_log) = &mut context.learned_constraint_log {
-            learned_constraint_log.log_item(LearnedConstraintLogItem::NewPropagator {
-                propagator_id: new_propagator_id.0,
-                learned_constraint: learned_constraint.constraint.clone(),
-            });
+        if !LOG_NOGOODS {
+            if let Some(learned_constraint_log) = &mut context.learned_constraint_log {
+                learned_constraint_log.log_item(LearnedConstraintLogItem::NewPropagator {
+                    propagator_id: new_propagator_id.0,
+                    learned_constraint: learned_constraint.constraint.clone(),
+                });
+            }
         }
 
         let mut initialisation_context = PropagatorInitialisationContext::new(

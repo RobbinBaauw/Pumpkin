@@ -24,6 +24,7 @@ use super::termination::TerminationCondition;
 use super::variables::IntegerVariable;
 use super::variables::Literal;
 use super::ResolutionResolver;
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::CSPSolverExecutionFlag;
 use crate::basic_types::ConstraintOperationError;
@@ -1005,6 +1006,7 @@ impl ConstraintSatisfactionSolver {
         ConstraintSatisfactionSolver::add_asserting_nogood_to_nogood_propagator(
             &mut self.propagators[Self::get_nogood_propagator_id()],
             learned_nogood.predicates,
+            learned_nogood.alternative_constraint,
             &mut context,
             &mut self.solver_statistics,
             self.internal_parameters
@@ -1016,6 +1018,7 @@ impl ConstraintSatisfactionSolver {
     pub(crate) fn add_asserting_nogood_to_nogood_propagator(
         nogood_propagator: &mut dyn Propagator,
         nogood: Vec<Predicate>,
+        alternative_constraint: Option<LinearLessOrEqual>,
         context: &mut PropagationContextMut,
         statistics: &mut SolverStatistics,
         skip_nogood_learning: bool,
@@ -1023,6 +1026,7 @@ impl ConstraintSatisfactionSolver {
         match nogood_propagator.downcast_mut::<NogoodPropagator>() {
             Some(nogood_propagator) => nogood_propagator.add_asserting_nogood(
                 nogood,
+                alternative_constraint,
                 context,
                 statistics,
                 skip_nogood_learning,

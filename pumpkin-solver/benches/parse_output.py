@@ -7,12 +7,13 @@ from print_output import results_to_table, table_to_latex
 
 BENCH_DIR = Path(__file__).parent / "examples-set"
 BASE_DIR = Path(__file__).parent / "results" / "experiments"
+BASE_DIR_RELEVANT = Path(__file__).parent / "results" / "experiments_relevant"
 
 
 def parse_bench_results():
-    intsat_results = parse_results_dir(BASE_DIR / "16" / "0")
-    intsat_results_p2 = parse_results_dir(BASE_DIR / "17" / "0")
-    resolution_results = parse_results_dir(BASE_DIR / "18" / "0")
+    intsat_results = parse_results_dir(BASE_DIR / "16" / "0", None)
+    intsat_results_p2 = parse_results_dir(BASE_DIR / "17" / "0", None)
+    resolution_results = parse_results_dir(BASE_DIR / "18" / "0", None)
 
     assert all(map(lambda r: r.program == Program.RESOLUTION, resolution_results))
     assert all(map(lambda r: r.program == Program.INTSAT_PUMPKIN, intsat_results))
@@ -23,10 +24,10 @@ def parse_bench_results():
 
 
 def parse_examples_results():
-    resolution_results = parse_results_dir(BASE_DIR / "15" / "2")
-    intsat_results = parse_results_dir(BASE_DIR / "23" / "0")
-    intsat_skip_results = parse_results_dir(BASE_DIR / "23" / "1")
-    intsat_og_results = parse_results_dir(BASE_DIR / "9" / "0")
+    resolution_results = parse_results_dir(BASE_DIR / "15" / "2", None)
+    intsat_results = parse_results_dir(BASE_DIR / "23" / "0", None)
+    intsat_skip_results = parse_results_dir(BASE_DIR / "23" / "1", None)
+    intsat_og_results = parse_results_dir(BASE_DIR / "9" / "0", None)
 
     assert all(map(lambda r: r.program == Program.RESOLUTION, resolution_results))
     assert all(map(lambda r: r.program == Program.INTSAT_PUMPKIN, intsat_results))
@@ -39,11 +40,13 @@ def parse_examples_results():
 
 
 def parse_learned_constraints():
-    intsat_results = parse_results_dir(BASE_DIR / "1" / "0")
+    intsat_constraint_results = parse_results_dir(BASE_DIR / "4" / "0", Program.INTSAT_CONSTRAINT)
+    intsat_nogood_results = parse_results_dir(BASE_DIR / "3" / "0", Program.INTSAT_NOGOOD)
 
-    assert all(map(lambda r: r.program == Program.INTSAT_PUMPKIN, intsat_results))
+    assert all(map(lambda r: r.program == Program.INTSAT_CONSTRAINT, intsat_constraint_results))
+    assert all(map(lambda r: r.program == Program.INTSAT_NOGOOD, intsat_nogood_results))
 
-    results = combine_run_results(intsat_results)
+    results = combine_run_results(intsat_constraint_results, intsat_nogood_results)
     with open('results_out_learned_constraints.pkl', 'wb') as results_out:
         pickle.dump(results, results_out, pickle.HIGHEST_PROTOCOL)
 

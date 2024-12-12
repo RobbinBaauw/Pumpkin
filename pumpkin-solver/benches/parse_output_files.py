@@ -43,6 +43,9 @@ class Program(Enum):
     INTSAT_SKIP_PUMPKIN = "IntSat skip nogood learning"
     RESOLUTION = "Resolution"
 
+    INTSAT_NOGOOD = "Intsat Nogood"
+    INTSAT_CONSTRAINT = "Intsat Constraint"
+
     def is_pumpkin_intsat(self):
         return self == Program.INTSAT_PUMPKIN or self == Program.INTSAT_SKIP_PUMPKIN
 
@@ -100,12 +103,12 @@ class LearnedConstraintNogoodTerm:
 
 @dataclass
 class LearnedConstraint:
-    propagator_id: int
+    is_learned_nogood: bool
+    prop_nogood_id: int
     propagates_at_conflict: List[LearnedConstraintPropagation]
     errors_at_conflict: List[LearnedConstraintError]
     constraint: LearnedConstraintInequality
     nogoods: List[LearnedConstraintNogoodTerm]
-    backjump_level: int
 
 
 @dataclass
@@ -337,6 +340,7 @@ def parse_learned_constraints(learned_constraints_path: Path):
         var_id, lb, ub = int(domain_res.group(1)), int(domain_res.group(2)), int(domain_res.group(3))
         return var_id, (lb, ub)
 
+    asserting_nogood_count = 0
     for line_i, line in enumerate(learned_constraints_lines):
         if len(line.strip()) == 0:
             continue
@@ -344,44 +348,65 @@ def parse_learned_constraints(learned_constraints_path: Path):
         event = line.split("|")[1]
 
         match event:
-            case 'NC':
-                conflict_nr, event, constraint, nogoods, backjump_level = line.split("|")
-                _, event_next, prop_id_next, constraint_next = learned_constraints_lines[line_i+1].split("|")
-                if event_next != 'NP' or constraint != constraint_next:
-                    raise RuntimeError(f"Next line unexpected")
+            case 'CR':
+                conflict_nr, event, constraint, nogoods = line.split("|")
 
                 lhs, rhs = constraint.split(" <= ")
                 terms = list(map(parse_constraint_term, lhs.split(" + ")))
-                constraint = LearnedConstraintInequality(terms, int(rhs))
+                constraint_parsed = LearnedConstraintInequality(terms, int(rhs))
 
                 nogoods_parsed = list(map(parse_nogood_term, nogoods.split("; ")))
 
-                learned_constraints[int(prop_id_next)] = LearnedConstraint(
-                    int(prop_id_next),
+                if len(nogoods_parsed) == 1:
+                    # Learned nogoods with length 1 will be root predicates, so no actual nogoods are created in that case
+                    # It might be that this is even the last statement, so check for that as well
+                    next_line = learned_constraints_lines[line_i+1]
+                    if len(next_line.strip()) == 0:
+                        continue
+
+                    event_next = learned_constraints_lines[line_i+1].split("|")[1]
+                    if event_next != 'NP':
+                        asserting_nogood_count += 1
+                        learned_constraints[-asserting_nogood_count] = LearnedConstraint(
+                            True,
+                            -asserting_nogood_count,
+                            [],
+                            [],
+                            constraint_parsed,
+                            nogoods_parsed,
+                            )
+                        continue
+
+                _, event_next, prop_nogood_id_next, constraint_next = learned_constraints_lines[line_i+1].split("|")
+                if (event_next != 'NP' and event_next != 'NNG') or constraint != constraint_next:
+                    raise RuntimeError(f"Next line unexpected")
+
+                learned_constraints[int(prop_nogood_id_next)] = LearnedConstraint(
+                    event_next == 'NNG',
+                    int(prop_nogood_id_next),
                     [],
                     [],
-                    constraint,
+                    constraint_parsed,
                     nogoods_parsed,
-                    int(backjump_level)
                 )
 
-            case 'NP':
+            case 'NP' | 'NNG':
                 pass
 
-            case 'CP':
-                conflict_nr, event, prop_id, domains, propagated_var = line.split("|")
+            case 'CP' | 'NGP':
+                conflict_nr, event, prop_nogood_id, domains, propagated_var = line.split("|")
                 domains_parsed = dict(map(parse_domain, domains.split(" ")))
 
-                learned_constraints[int(prop_id)].propagates_at_conflict.append(LearnedConstraintPropagation(
+                learned_constraints[int(prop_nogood_id)].propagates_at_conflict.append(LearnedConstraintPropagation(
                     int(conflict_nr),
                     int(propagated_var.replace("x", "")),
                     domains_parsed,
                 ))
 
             case 'CE':
-                conflict_nr, event, prop_id, domains = line.split("|")
+                conflict_nr, event, prop_nogood_id, domains = line.split("|")
                 domains_parsed = dict(map(parse_domain, domains.split(" ")))
-                learned_constraints[int(prop_id)].errors_at_conflict.append(LearnedConstraintError(int(conflict_nr), domains_parsed))
+                learned_constraints[int(prop_nogood_id)].errors_at_conflict.append(LearnedConstraintError(int(conflict_nr), domains_parsed))
 
     return learned_constraints
 
@@ -435,7 +460,7 @@ def parse_intsat(stderr_path: Path):
     )
 
 
-def parse_results_dir(results_dir: Path):
+def parse_results_dir(results_dir: Path, override_program: Optional[Program]):
     results = []
     for exp_dir in results_dir.iterdir():
         if exp_dir.is_dir():
@@ -459,6 +484,7 @@ def parse_results_dir(results_dir: Path):
                 stdout = parse_stdout(exp_dir / "stdout")
 
                 version, file_path, file_name, program = parse_run_info(exp_dir / "run_info")
+                program = override_program if override_program is not None else program
 
                 if stderr is None:
                     stats = parse_stat_file(exp_dir / "run_stats")

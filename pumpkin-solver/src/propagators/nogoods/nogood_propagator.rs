@@ -1,13 +1,16 @@
 use std::ops::Not;
 
+use itertools::Itertools;
 use log::warn;
 
 use super::LearnedNogoodSortingStrategy;
 use super::LearningOptions;
 use super::NogoodId;
 use super::NogoodWatchList;
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::ConstraintOperationError;
+use crate::basic_types::HashMap;
 use crate::basic_types::Inconsistency;
 use crate::basic_types::PropositionalConjunction;
 use crate::conjunction;
@@ -37,6 +40,8 @@ use crate::propagators::nogoods::Nogood;
 use crate::pumpkin_assert_advanced;
 use crate::pumpkin_assert_moderate;
 use crate::pumpkin_assert_simple;
+use crate::statistics::learned_constraint_log::LearnedConstraintLogItem;
+use crate::statistics::learned_constraint_log::VariableDomains;
 
 /// A propagator which propagates nogoods (i.e. a list of [`Predicate`]s which cannot all be true
 /// at the same time).
@@ -50,6 +55,7 @@ use crate::pumpkin_assert_simple;
 pub(crate) struct NogoodPropagator {
     /// The list of currently stored nogoods
     nogoods: KeyedVec<NogoodId, Nogood>,
+    alternative_constraints: HashMap<u32, LinearLessOrEqual>,
     /// Nogoods which are permanently present
     permanent_nogoods: Vec<NogoodId>,
     /// The ids of the nogoods sorted based on whether they have a "low" LBD score or a "high" LBD
@@ -123,6 +129,47 @@ impl NogoodPropagator {
             }
         }
         false
+    }
+
+    fn log_propagation(
+        nogood_id: &NogoodId,
+        nogood: PropositionalConjunction,
+        alternative_constraint: Option<&LinearLessOrEqual>,
+        prop_var: DomainId,
+        context: &mut PropagationContextMut,
+    ) {
+        let Some(log) = &mut context.learned_constraint_log else {
+            return;
+        };
+
+        let nogood_vars = nogood.iter().map(|p| p.get_domain());
+
+        let Some(learned_constraint) = alternative_constraint else {
+            return;
+        };
+        let constraint_vars = learned_constraint.lhs.iter().map(|(id, _)| *id);
+
+        let domains = VariableDomains(
+            nogood_vars
+                .chain(constraint_vars)
+                .unique()
+                .map(|v| {
+                    (
+                        v,
+                        (
+                            context.assignments.get_lower_bound(v),
+                            context.assignments.get_upper_bound(v),
+                        ),
+                    )
+                })
+                .collect(),
+        );
+
+        log.log_item(LearnedConstraintLogItem::NogoodPropagation {
+            nogood_id: nogood_id.id,
+            propagated_var: prop_var,
+            domains_at_propagation: domains,
+        })
     }
 }
 
@@ -262,6 +309,13 @@ impl Propagator for NogoodPropagator {
                             // nogood[0] is assigned true -> conflict.
                             let reason = Reason::DynamicLazy(nogood_id.id as u64);
 
+                            Self::log_propagation(
+                                &nogood_id,
+                                nogood.clone(),
+                                self.alternative_constraints.get(&nogood_id.id),
+                                nogood[0].get_domain(),
+                                &mut context,
+                            );
                             let result = context.post_predicate(!nogood[0], reason);
                             // If the propagation lead to a conflict.
                             if let Err(e) = result {
@@ -398,6 +452,13 @@ impl Propagator for NogoodPropagator {
                             // nogood[0] is assigned true -> conflict.
                             let reason = Reason::DynamicLazy(nogood_id.id as u64);
 
+                            Self::log_propagation(
+                                &nogood_id,
+                                nogood.clone(),
+                                self.alternative_constraints.get(&nogood_id.id),
+                                nogood[0].get_domain(),
+                                &mut context,
+                            );
                             let result = context.post_predicate(!nogood[0], reason);
                             // If the propagation lead to a conflict.
                             if let Err(e) = result {
@@ -592,6 +653,13 @@ impl Propagator for NogoodPropagator {
                             // nogood[0] is assigned true -> conflict.
                             let reason = Reason::DynamicLazy(nogood_id.id as u64);
 
+                            Self::log_propagation(
+                                &nogood_id,
+                                nogood.clone(),
+                                self.alternative_constraints.get(&nogood_id.id),
+                                nogood[0].get_domain(),
+                                &mut context,
+                            );
                             let result = context.post_predicate(!nogood[0], reason);
                             // If the propagation lead to a conflict.
                             if let Err(e) = result {
@@ -731,6 +799,13 @@ impl Propagator for NogoodPropagator {
                             // nogood[0] is assigned true -> conflict.
                             let reason = Reason::DynamicLazy(nogood_id.id as u64);
 
+                            Self::log_propagation(
+                                &nogood_id,
+                                nogood.clone(),
+                                self.alternative_constraints.get(&nogood_id.id),
+                                nogood[0].get_domain(),
+                                &mut context,
+                            );
                             let result = context.post_predicate(!nogood[0], reason);
                             // If the propagation lead to a conflict.
                             if let Err(e) = result {
@@ -896,6 +971,7 @@ impl NogoodPropagator {
     pub(crate) fn add_asserting_nogood(
         &mut self,
         nogood: Vec<Predicate>,
+        alternative_constraint: Option<LinearLessOrEqual>,
         context: &mut PropagationContextMut,
         statistics: &mut SolverStatistics,
         skip_nogood_learning: bool,
@@ -959,6 +1035,19 @@ impl NogoodPropagator {
                 self.nogoods[new_id].predicates[1],
                 new_id,
             );
+
+            if let Some(alternative_constraint) = alternative_constraint {
+                if let Some(learned_constraint_log) = &mut context.learned_constraint_log {
+                    learned_constraint_log.log_item(LearnedConstraintLogItem::NewNogood {
+                        nogood_id: new_id.id,
+                        learned_constraint: alternative_constraint.clone(),
+                    });
+                }
+
+                let _ = self
+                    .alternative_constraints
+                    .insert(new_id.id, alternative_constraint);
+            }
 
             // Then we propagate the asserting predicate and as reason we give the index to the
             // asserting nogood such that we can re-create the reason when asked for it

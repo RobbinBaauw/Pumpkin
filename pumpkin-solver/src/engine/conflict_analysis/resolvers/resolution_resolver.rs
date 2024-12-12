@@ -491,6 +491,7 @@ impl ResolutionResolver {
 
         LearnedNogood {
             backjump_level,
+            alternative_constraint: None,
             predicates: clean_nogood,
         }
     }

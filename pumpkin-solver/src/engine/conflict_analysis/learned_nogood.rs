@@ -11,6 +11,7 @@ pub(crate) struct LearnedConstraint {
 #[derive(Clone, Debug)]
 pub(crate) struct LearnedNogood {
     pub(crate) predicates: Vec<Predicate>,
+    pub(crate) alternative_constraint: Option<LinearLessOrEqual>,
     pub(crate) backjump_level: usize,
 }
 

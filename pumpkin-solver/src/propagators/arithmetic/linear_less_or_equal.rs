@@ -18,8 +18,8 @@ use crate::engine::Assignments;
 use crate::predicate;
 use crate::predicates::Predicate;
 use crate::pumpkin_assert_simple;
-use crate::statistics::learned_constraint_log::LearnedConstraintDomains;
 use crate::statistics::learned_constraint_log::LearnedConstraintLogItem;
+use crate::statistics::learned_constraint_log::VariableDomains;
 use crate::statistics::Statistic;
 use crate::statistics::StatisticLogger;
 
@@ -138,11 +138,11 @@ where
         }
     }
 
-    fn compute_var_domains(&self, context: &PropagationContextMut) -> LearnedConstraintDomains {
+    fn compute_var_domains(&self, context: &PropagationContextMut) -> VariableDomains {
         let nogood_vars = self.alternative_nogood.iter().map(|p| p.get_domain());
         let constraint_vars = self.x.iter().map(|v| v.get_domain_id());
 
-        LearnedConstraintDomains(
+        VariableDomains(
             nogood_vars
                 .chain(constraint_vars)
                 .unique()
