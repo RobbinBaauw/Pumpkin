@@ -1,3 +1,4 @@
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 use crate::conjunction;
 use crate::engine::cp::propagation::propagation_context::ReadDomains;
@@ -7,7 +8,6 @@ use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::variables::IntegerVariable;
 use crate::engine::DomainEvents;
-use crate::predicates::PropositionalConjunction;
 use crate::pumpkin_assert_simple;
 
 /// A propagator for maintaining the constraint `numerator / denominator = rhs`; note that this
@@ -54,7 +54,7 @@ where
     fn initialise_at_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         pumpkin_assert_simple!(
             !context.contains(&self.denominator, 0),
             "Denominator cannot contain 0"

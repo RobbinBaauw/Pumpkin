@@ -1,4 +1,5 @@
 use crate::basic_types::Inconsistency;
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::propagation::EnqueueDecision;
@@ -9,8 +10,6 @@ use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::propagation::ReadDomains;
 use crate::engine::DomainEvents;
-use crate::engine::propagation::EnqueueDecision::Enqueue;
-use crate::predicates::PropositionalConjunction;
 use crate::pumpkin_assert_simple;
 use crate::variables::Literal;
 
@@ -26,7 +25,7 @@ pub(crate) struct ReifiedPropagator<WrappedPropagator> {
     propagator: WrappedPropagator,
     reification_literal: Literal,
     /// An inconsistency that is identified by `propagator`.
-    inconsistency: Option<PropositionalConjunction>,
+    inconsistency: Option<PropagationReason>,
     /// The formatted name of the propagator.
     name: String,
     /// The `LocalId` of the reification literal. Is guaranteed to be a larger ID than any of the
@@ -81,7 +80,7 @@ impl<WrappedPropagator: Propagator> Propagator for ReifiedPropagator<WrappedProp
     fn initialise_at_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         // Since we cannot propagate here, we store a conflict which the wrapped propagator
         // identifies at the root, and propagate the reification literal to false in the
         // `propagate` method.
@@ -154,7 +153,9 @@ impl<WrappedPropagator: Propagator> Propagator for ReifiedPropagator<WrappedProp
 impl<Prop: Propagator> ReifiedPropagator<Prop> {
     fn map_propagation_status(&self, mut status: PropagationStatusCP) -> PropagationStatusCP {
         if let Err(Inconsistency::Conflict(ref mut conflict_nogood)) = status {
-            conflict_nogood.add(self.reification_literal.get_true_predicate());
+            conflict_nogood
+                .0
+                .add(self.reification_literal.get_true_predicate());
         }
         status
     }
@@ -211,6 +212,7 @@ impl<Prop: Propagator> ReifiedPropagator<Prop> {
 mod tests {
     use super::*;
     use crate::basic_types::Inconsistency;
+    use crate::basic_types::PropagationReason;
     use crate::conjunction;
     use crate::engine::test_solver::TestSolver;
     use crate::predicate;
@@ -376,7 +378,7 @@ mod tests {
         for GenericPropagator<Propagation, ConsistencyCheck, Init>
     where
         Propagation: Fn(PropagationContextMut) -> PropagationStatusCP + 'static,
-        ConsistencyCheck: Fn(PropagationContext) -> Option<PropositionalConjunction> + 'static,
+        ConsistencyCheck: Fn(PropagationContext) -> Option<PropagationReason> + 'static,
         Init: Fn(&mut PropagatorInitialisationContext) -> Result<(), PropositionalConjunction>
             + 'static,
     {
@@ -391,17 +393,14 @@ mod tests {
             (self.propagation)(context)
         }
 
-        fn detect_inconsistency(
-            &self,
-            context: PropagationContext,
-        ) -> Option<PropositionalConjunction> {
+        fn detect_inconsistency(&self, context: PropagationContext) -> Option<PropagationReason> {
             (self.consistency_check)(context)
         }
 
         fn initialise_at_root(
             &mut self,
             context: &mut PropagatorInitialisationContext,
-        ) -> Result<(), PropositionalConjunction> {
+        ) -> Result<(), PropagationReason> {
             self.variables_to_register
                 .iter()
                 .enumerate()

@@ -1,3 +1,4 @@
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::basic_types::PropositionalConjunction;
 use crate::engine::EmptyDomain;
 use crate::predicates::Predicate;
@@ -7,10 +8,22 @@ use crate::predicates::Predicate;
 /// variant, i.e. a propositional conjunction.
 pub(crate) type PropagationStatusCP = Result<(), Inconsistency>;
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub(crate) struct PropagationReason(
+    pub(crate) PropositionalConjunction,
+    pub(crate) Option<LinearLessOrEqual>,
+);
+
+impl From<PropositionalConjunction> for PropagationReason {
+    fn from(conflict_nogood: PropositionalConjunction) -> Self {
+        PropagationReason(conflict_nogood, None)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Inconsistency {
     EmptyDomain,
-    Conflict(PropositionalConjunction),
+    Conflict(PropagationReason),
 }
 
 impl From<EmptyDomain> for Inconsistency {
@@ -20,8 +33,14 @@ impl From<EmptyDomain> for Inconsistency {
 }
 
 impl From<PropositionalConjunction> for Inconsistency {
-    fn from(conflict_nogood: PropositionalConjunction) -> Self {
-        Inconsistency::Conflict(conflict_nogood)
+    fn from(conflict_reason: PropositionalConjunction) -> Self {
+        Inconsistency::Conflict(conflict_reason.into())
+    }
+}
+
+impl From<PropagationReason> for Inconsistency {
+    fn from(conflict_reason: PropagationReason) -> Self {
+        Inconsistency::Conflict(conflict_reason)
     }
 }
 
@@ -31,6 +50,6 @@ where
 {
     fn from(value: Slice) -> Self {
         let conflict_nogood: PropositionalConjunction = value.as_ref().to_vec().into();
-        Inconsistency::Conflict(conflict_nogood)
+        Inconsistency::Conflict(conflict_nogood.into())
     }
 }

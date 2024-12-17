@@ -1,5 +1,5 @@
-use crate::basic_types::HashSet;
 use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
+use crate::basic_types::HashSet;
 use crate::predicates::Predicate;
 use crate::variables::DomainId;
 

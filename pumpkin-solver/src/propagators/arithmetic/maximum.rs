@@ -1,3 +1,4 @@
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 use crate::basic_types::PropositionalConjunction;
 use crate::conjunction;
@@ -30,7 +31,7 @@ impl<ElementVar: IntegerVariable + 'static, Rhs: IntegerVariable + 'static> Prop
     fn initialise_at_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         self.array
             .iter()
             .cloned()

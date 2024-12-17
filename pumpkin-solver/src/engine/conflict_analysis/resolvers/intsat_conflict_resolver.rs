@@ -3,7 +3,6 @@ use log::debug;
 
 use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::basic_types::moving_averages::MovingAverage;
-use crate::basic_types::StoredConflictInfo;
 use crate::engine::conflict_analysis::ConflictAnalysisContext;
 use crate::engine::conflict_analysis::ConflictResolveResult;
 use crate::engine::conflict_analysis::ConflictResolveResult::Constraint;
@@ -11,7 +10,11 @@ use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::engine::conflict_analysis::ConflictResolver;
 use crate::engine::conflict_analysis::LearnedConstraint;
 use crate::engine::conflict_analysis::LearnedNogood;
-use crate::engine::propagation::{Propagator, PropagatorId, PropagatorInitialisationContext};
+use crate::engine::propagation::CurrentNogood;
+use crate::engine::propagation::ExplanationContext;
+use crate::engine::propagation::Propagator;
+use crate::engine::propagation::PropagatorId;
+use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
@@ -19,8 +22,7 @@ use crate::propagators::predicate_literal_propagator::PredicateLiteralPropagator
 use crate::pumpkin_assert_ne_simple;
 use crate::pumpkin_assert_simple;
 use crate::statistics::learned_constraint_log::LearnedConstraintLogItem;
-use crate::statistics::statistic_logger::Propagator;
-use crate::variables::{DomainId, Literal};
+use crate::variables::DomainId;
 
 static LOG_NOGOODS: bool = false;
 
@@ -53,7 +55,10 @@ impl IntSatConflictResolver {
         self.resolution_resolver.resolve_conflict(context)
     }
 
-    fn create_new_propagator(context: &mut ConflictAnalysisContext, propagator: impl Propagator) -> PropagatorId {
+    fn create_new_propagator(
+        context: &mut ConflictAnalysisContext,
+        propagator: impl Propagator,
+    ) -> PropagatorId {
         let new_pred_prop_id = context.propagators.alloc(Box::new(propagator), None);
         let new_propagator = &mut context.propagators[new_pred_prop_id];
 
@@ -197,42 +202,11 @@ impl ConflictResolver for IntSatConflictResolver {
 
         pumpkin_assert_ne_simple!(context.assignments.get_decision_level(), 0);
 
-        let mut conflicting_constraint = match context.solver_state.get_conflict_info() {
-            StoredConflictInfo::Propagator { propagator_id, .. } => {
-                let propagator = &context.propagators[propagator_id];
-
-                match propagator.linear_inequality_explanation() {
-                    None => {
-                        return self.apply_fallback(context, "Conflict caused by propagator that cannot explain with linear inequality");
-                    }
-                    Some(prop_constraint_expl) => prop_constraint_expl,
-                }
-            }
-            StoredConflictInfo::EmptyDomain { .. } => {
-                let last_entry = context.assignments.get_last_entry_on_trail();
-
-                // Solver#L1203 has a temporary solution that removes the last tail element, so the
-                // reason could also be a decision In that case, we cannot know
-                // which propagator actually propagated the element causing the empty domain...
-                // So for now, revert to resolution instead. TODO change this back when the
-                // workaround is removed
-                let Some(last_entry_reason) = last_entry.reason else {
-                    return self.apply_fallback(context, "Empty domain because of decision");
-                };
-
-                let propagator_id = context.reason_store.get_propagator(last_entry_reason);
-                let propagator = &context.propagators[propagator_id];
-
-                match propagator.linear_inequality_explanation() {
-                    None => {
-                        return self.apply_fallback(context, "Empty domain caused by propagator that cannot explain with linear inequality");
-                    }
-                    Some(prop_constraint_expl) => prop_constraint_expl,
-                }
-            }
-            StoredConflictInfo::RootLevelConflict(..) => {
-                unreachable!("Shouldn't have to explain a root level conflict")
-            }
+        let Some(mut conflicting_constraint) = context.get_conflict_constraint() else {
+            return self.apply_fallback(
+                context,
+                "Conflict caused by propagator that cannot explain with linear inequality",
+            );
         };
 
         let current_decision_level = context.assignments.get_decision_level();
@@ -280,13 +254,19 @@ impl ConflictResolver for IntSatConflictResolver {
             trail_index -= 1;
 
             // Find the scale of the variable of its reason
-            let propagator_id = context
-                .reason_store
-                .get_propagator(trail_entry.reason.unwrap());
-            let propagator = &context.propagators[propagator_id];
+            let reason_ref = trail_entry
+                .reason
+                .expect("Cannot be a null reason for propagation.");
 
-            let prop_constraint_expl_opt = propagator.linear_inequality_explanation();
-            let Some(prop_constraint_expl) = prop_constraint_expl_opt else {
+            let explanation_context =
+                ExplanationContext::new(context.assignments, CurrentNogood::empty());
+
+            let reason = context
+                .reason_store
+                .get_or_compute(reason_ref, explanation_context, context.propagators)
+                .expect("reason reference should not be stale");
+
+            let Some(prop_constraint_expl) = reason.1 else {
                 // In this case, we have a conjunction of predicates, which we can somewhat turn
                 // into a linear constraint Say for instance, our conflicting
                 // constraint is 3x + y <= 3, with reason for [y >= 3] being [z >= 2] /\ [y <= 2]
@@ -473,10 +453,11 @@ impl ConflictResolver for IntSatConflictResolver {
                     } else {
                         Some(Constraint(LearnedConstraint {
                             constraint: conflicting_constraint,
+                            auxiliary_variables: Default::default(), // TODO
                             alternative_nogood: learned_nogood.predicates,
                             backjump_level,
                         }))
-                    }
+                    };
                 }
             }
         }
@@ -491,7 +472,7 @@ impl ConflictResolver for IntSatConflictResolver {
             .as_ref()
             .expect("Expected nogood / constraint");
 
-        let Constraint(mut learned_constraint) = resolve_result_unwrap else {
+        let Constraint(learned_constraint) = resolve_result_unwrap else {
             return self.resolution_resolver.process(context, resolve_result);
         };
 
@@ -510,23 +491,26 @@ impl ConflictResolver for IntSatConflictResolver {
         );
 
         // - Create binary variables & propagator
-        // - (either) Set the lower/upper bound updates to reflect the correct state (with what trail entries?)
-        //   (or) Alternatively, dynamically retrieve the state (though then there are still no trail entries)
+        // - (either) Set the lower/upper bound updates to reflect the correct state (with what
+        //   trail entries?) (or) Alternatively, dynamically retrieve the state (though then there
+        //   are still no trail entries)
         // - Always trigger the propagators for the learned constraints on backtrack!
 
-        // We actually never need to put anything on the trail. Just make sure it propagates on backtracking...
-        // The LinLeq propagator only requires lower bounds at this point in time,
-        // which is always correct if you immediately apply propagator after backtracking.
-        // Same for nogood propagator. Let's see...
+        // We actually never need to put anything on the trail. Just make sure it propagates on
+        // backtracking... The LinLeq propagator only requires lower bounds at this point in
+        // time, which is always correct if you immediately apply propagator after
+        // backtracking. Same for nogood propagator. Let's see...
+        let mut learned_constraint = learned_constraint.clone();
         for (var_id, var_pred) in learned_constraint.auxiliary_variables {
             let new_var_id = context.assignments.new_aux_variable();
 
             // Update the ids using this var to their new ids
-            learned_constraint.constraint
+            learned_constraint
+                .constraint
                 .lhs
                 .iter_mut()
-                .filter(|(id, scale)| *id == var_id)
-                .for_each(|(id, scale)| *id = new_var_id);
+                .filter(|(id, _)| *id == var_id)
+                .for_each(|(id, _)| *id = new_var_id);
 
             let new_pred_prop = PredicateLiteralPropagator::new(var_pred, new_var_id);
             let _ = Self::create_new_propagator(context, new_pred_prop);

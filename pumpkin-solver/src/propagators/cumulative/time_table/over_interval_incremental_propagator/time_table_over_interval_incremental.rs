@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use super::insertion;
 use super::removal;
-use crate::basic_types::PropagationStatusCP;
+use crate::basic_types::{PropagationReason, PropagationStatusCP};
 use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::propagation::EnqueueDecision;
 use crate::engine::propagation::LocalId;
@@ -14,7 +14,6 @@ use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::variables::IntegerVariable;
 use crate::engine::IntDomainEvent;
-use crate::predicates::PropositionalConjunction;
 use crate::propagators::create_time_table_over_interval_from_scratch;
 use crate::propagators::cumulative::time_table::over_interval_incremental_propagator::debug;
 use crate::propagators::cumulative::time_table::over_interval_incremental_propagator::synchronisation::check_synchronisation_conflict_explanation_over_interval;
@@ -460,7 +459,7 @@ impl<Var: IntegerVariable + 'static, const SYNCHRONISE: bool> Propagator
     fn initialise_at_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         // We only register for notifications of backtrack events if incremental backtracking is
         // enabled
         register_tasks(

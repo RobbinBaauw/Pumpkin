@@ -3,9 +3,9 @@ use downcast_rs::Downcast;
 
 use super::explanation_context::ExplanationContext;
 use super::propagator_initialisation_context::PropagatorInitialisationContext;
-use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 #[cfg(doc)]
 use crate::basic_types::Inconsistency;
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 #[cfg(doc)]
 use crate::create_statistics_struct;
@@ -13,10 +13,9 @@ use crate::engine::opaque_domain_event::OpaqueDomainEvent;
 use crate::engine::propagation::local_id::LocalId;
 use crate::engine::propagation::propagation_context::PropagationContext;
 use crate::engine::propagation::propagation_context::PropagationContextMut;
+use crate::engine::reason::PropagationReasonRef;
 #[cfg(doc)]
 use crate::engine::ConstraintSatisfactionSolver;
-use crate::predicates::Predicate;
-use crate::predicates::PropositionalConjunction;
 #[cfg(doc)]
 use crate::pumpkin_asserts::PUMPKIN_ASSERT_ADVANCED;
 #[cfg(doc)]
@@ -149,12 +148,12 @@ pub(crate) trait Propagator: Downcast {
     fn initialise_at_root(
         &mut self,
         _: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction>;
+    ) -> Result<(), PropagationReason>;
 
     fn initialise_at_non_root(
         &mut self,
         ctx: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         self.initialise_at_root(ctx)
     }
 
@@ -164,10 +163,7 @@ pub(crate) trait Propagator: Downcast {
     /// reification literal based on the detected inconsistency. Yet, an implementation is not
     /// needed for correctness, as [`Propagator::propagate`] should still check for
     /// inconsistency as well.
-    fn detect_inconsistency(
-        &self,
-        _context: PropagationContext,
-    ) -> Option<PropositionalConjunction> {
+    fn detect_inconsistency(&self, _context: PropagationContext) -> Option<PropagationReason> {
         None
     }
 
@@ -176,7 +172,11 @@ pub(crate) trait Propagator: Downcast {
     /// The code which was attached to the propagation through [`Reason::DynamicLazy`] is given, as
     /// well as a context object which defines what can be inspected from the solver to build the
     /// explanation.
-    fn lazy_explanation(&mut self, _code: u64, _context: ExplanationContext) -> &[Predicate] {
+    fn lazy_explanation(
+        &mut self,
+        _code: u64,
+        _context: ExplanationContext,
+    ) -> PropagationReasonRef {
         panic!(
             "{}",
             format!(
@@ -184,10 +184,6 @@ pub(crate) trait Propagator: Downcast {
                 self.name()
             )
         );
-    }
-
-    fn linear_inequality_explanation(&self) -> Option<LinearLessOrEqual> {
-        None
     }
 
     /// Logs statistics of the propagator using the provided [`StatisticLogger`].

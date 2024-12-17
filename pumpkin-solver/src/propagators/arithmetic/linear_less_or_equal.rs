@@ -1,6 +1,7 @@
 use itertools::Itertools;
 
 use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 use crate::basic_types::PropositionalConjunction;
 use crate::create_statistics_struct;
@@ -106,7 +107,21 @@ where
             });
     }
 
-    fn create_conflict_reason(
+    fn create_conflict_reason_inequality(&self) -> LinearLessOrEqual {
+        let flat_vars = self.x.iter().map(|var| var.flatten()).collect_vec();
+
+        let lhs = flat_vars
+            .iter()
+            .map(|var| (var.id, var.scale))
+            .collect_vec();
+
+        let var_offsets = flat_vars.iter().map(|var| var.offset).sum::<i32>();
+        let rhs = self.c - var_offsets;
+
+        LinearLessOrEqual { lhs, rhs }
+    }
+
+    fn create_conflict_reason_proposition(
         &self,
         context: PropagationContext,
         skip_i: Option<usize>,
@@ -128,7 +143,7 @@ where
     fn initialise_base(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         self.recalculate_incremental_state(context.as_readonly());
 
         if let Some(conjunction) = self.detect_inconsistency(context.as_readonly()) {
@@ -179,7 +194,7 @@ where
     fn initialise_at_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         self.x.iter().enumerate().for_each(|(i, x_i)| {
             let _ = context.register(
                 x_i.clone(),
@@ -194,7 +209,7 @@ where
     fn initialise_at_non_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         self.x.iter().enumerate().for_each(|(i, x_i)| {
             let _ = context.register_unchecked(
                 x_i.clone(),
@@ -206,12 +221,12 @@ where
         self.initialise_base(context)
     }
 
-    fn detect_inconsistency(
-        &self,
-        context: PropagationContext,
-    ) -> Option<PropositionalConjunction> {
+    fn detect_inconsistency(&self, context: PropagationContext) -> Option<PropagationReason> {
         if (self.c as i64) < self.lower_bound_left_hand_side {
-            Some(self.create_conflict_reason(context, None))
+            Some(PropagationReason(
+                self.create_conflict_reason_proposition(context, None),
+                Some(self.create_conflict_reason_inequality()),
+            ))
         } else {
             None
         }
@@ -252,20 +267,6 @@ where
         "LinearLeq"
     }
 
-    fn linear_inequality_explanation(&self) -> Option<LinearLessOrEqual> {
-        let flat_vars = self.x.iter().map(|var| var.flatten()).collect_vec();
-
-        let lhs = flat_vars
-            .iter()
-            .map(|var| (var.id, var.scale))
-            .collect_vec();
-
-        let var_offsets = flat_vars.iter().map(|var| var.offset).sum::<i32>();
-        let rhs = self.c - var_offsets;
-
-        Some(LinearLessOrEqual { lhs, rhs })
-    }
-
     fn propagate(&mut self, mut context: PropagationContextMut) -> PropagationStatusCP {
         self.statistics.number_of_executions += 1;
 
@@ -290,7 +291,7 @@ where
                     // return a conflict
                     self.log_conflict(&mut context);
                     return Err(self
-                        .create_conflict_reason(context.as_readonly(), None)
+                        .create_conflict_reason_proposition(context.as_readonly(), None)
                         .into());
                 }
                 Err(_) => {
@@ -327,7 +328,7 @@ where
                     // bound would have to be set to i32::MIN.
                     self.log_conflict(&mut context);
                     return Err(self
-                        .create_conflict_reason(context.as_readonly(), Some(i))
+                        .create_conflict_reason_proposition(context.as_readonly(), Some(i))
                         .into());
                 }
             };
@@ -346,7 +347,10 @@ where
                     }
                 }
 
-                let reason = self.create_conflict_reason(context.as_readonly(), Some(i));
+                let reason = (
+                    self.create_conflict_reason_proposition(context.as_readonly(), Some(i)),
+                    self.create_conflict_reason_inequality(),
+                );
                 context.set_upper_bound(x_i, bound, reason)?;
             }
         }
@@ -389,7 +393,7 @@ where
                 // higher than the right-hand side (with a maximum value of i32). We thus
                 // return a conflict
                 return Err(self
-                    .create_conflict_reason(context.as_readonly(), None)
+                    .create_conflict_reason_proposition(context.as_readonly(), None)
                     .into());
             }
             Err(_) => {
@@ -425,13 +429,14 @@ where
                     // than this bound. This means that there is a conflict, as the upper
                     // bound would have to be set to i32::MIN.
                     return Err(self
-                        .create_conflict_reason(context.as_readonly(), Some(i))
+                        .create_conflict_reason_proposition(context.as_readonly(), Some(i))
                         .into());
                 }
             };
 
             if context.upper_bound(x_i) > bound {
-                let reason = self.create_conflict_reason(context.as_readonly(), Some(i));
+                let reason =
+                    self.create_conflict_reason_proposition(context.as_readonly(), Some(i));
                 context.set_upper_bound(x_i, bound, reason)?;
             }
         }

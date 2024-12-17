@@ -1,3 +1,4 @@
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 use crate::conjunction;
 use crate::engine::cp::propagation::ReadDomains;
@@ -30,7 +31,7 @@ impl<VA: IntegerVariable + 'static, VB: IntegerVariable + 'static> Propagator
     fn initialise_at_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), crate::predicates::PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         let _ = context.register(self.signed.clone(), DomainEvents::BOUNDS, LocalId::from(0));
         let _ = context.register(
             self.absolute.clone(),

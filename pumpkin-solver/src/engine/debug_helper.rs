@@ -164,6 +164,7 @@ impl DebugHelper {
                     propagators,
                 )
                 .expect("reason should exist for this propagation")
+                .0
                 .to_vec();
 
             result &= Self::debug_propagator_reason(
@@ -258,11 +259,12 @@ impl DebugHelper {
                             // subset of the premises
                             if let Inconsistency::Conflict(ref found_inconsistency) = conflict {
                                 found_inconsistency
+                                    .0
                                     .iter()
                                     .all(|predicate| reason.contains(predicate))
                                     || reason
                                         .iter()
-                                        .all(|predicate| found_inconsistency.contains(*predicate))
+                                        .all(|predicate| found_inconsistency.0.contains(*predicate))
                             } else {
                                 false
                             }

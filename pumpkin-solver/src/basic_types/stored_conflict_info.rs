@@ -1,4 +1,5 @@
 use super::PropositionalConjunction;
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 #[cfg(doc)]
 use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorId;
@@ -14,10 +15,12 @@ use crate::ConstraintOperationError;
 pub(crate) enum StoredConflictInfo {
     Propagator {
         conflict_nogood: PropositionalConjunction,
+        conflict_constraint: Option<LinearLessOrEqual>,
         propagator_id: PropagatorId,
     },
     EmptyDomain {
         conflict_nogood: PropositionalConjunction,
+        conflict_constraint: Option<LinearLessOrEqual>,
     },
     RootLevelConflict(ConstraintOperationError),
 }

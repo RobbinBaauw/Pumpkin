@@ -1,3 +1,4 @@
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 use crate::conjunction;
 use crate::engine::cp::propagation::ReadDomains;
@@ -44,7 +45,7 @@ where
     fn initialise_at_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), crate::predicates::PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         let _ = context.register(self.a.clone(), DomainEvents::ANY_INT, ID_A);
         let _ = context.register(self.b.clone(), DomainEvents::ANY_INT, ID_B);
         let _ = context.register(self.c.clone(), DomainEvents::ANY_INT, ID_C);

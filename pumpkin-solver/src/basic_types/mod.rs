@@ -20,6 +20,7 @@ pub(crate) use hash_structures::*;
 pub(crate) use predicate_id_generator::PredicateId;
 pub(crate) use predicate_id_generator::PredicateIdGenerator;
 pub(crate) use propagation_status_cp::Inconsistency;
+pub(crate) use propagation_status_cp::PropagationReason;
 pub(crate) use propagation_status_cp::PropagationStatusCP;
 pub use propositional_conjunction::PropositionalConjunction;
 pub use random::*;

@@ -30,7 +30,7 @@ use crate::basic_types::CSPSolverExecutionFlag;
 use crate::basic_types::ConstraintOperationError;
 use crate::basic_types::HashMap;
 use crate::basic_types::Inconsistency;
-use crate::basic_types::PropositionalConjunction;
+use crate::basic_types::PropagationReason;
 use crate::basic_types::Random;
 use crate::basic_types::SolutionReference;
 use crate::basic_types::StoredConflictInfo;
@@ -247,7 +247,8 @@ impl ConstraintSatisfactionSolver {
                     let propagator = &mut propagators[propagator_var.propagator];
                     let context = PropagationContext::new(assignments);
 
-                    let enqueue_decision = propagator.notify_backtrack(context, propagator_var.variable, event.into());
+                    let enqueue_decision =
+                        propagator.notify_backtrack(context, propagator_var.variable, event.into());
 
                     if enqueue_decision == EnqueueDecision::Enqueue {
                         propagator_queue
@@ -1145,7 +1146,7 @@ impl ConstraintSatisfactionSolver {
         assignments: &mut Assignments,
         reason_store: &mut ReasonStore,
         propagators: &mut PropagatorStore,
-    ) -> PropositionalConjunction {
+    ) -> PropagationReason {
         // The empty domain happened after posting the last predicate on the trail.
         // The reason for this empty domain is computed as the reason for the bounds before the last
         // trail predicate was posted, plus the reason for the last trail predicate.
@@ -1179,8 +1180,8 @@ impl ConstraintSatisfactionSolver {
             predicate!(conflict_domain <= entry.old_upper_bound),
         ];
 
-        empty_domain_reason.append(&mut reason_changing_bound.to_vec());
-        empty_domain_reason.into()
+        empty_domain_reason.append(&mut reason_changing_bound.0.to_vec());
+        PropagationReason(empty_domain_reason.into(), reason_changing_bound.1.clone())
     }
 
     /// Main propagation loop.
@@ -1232,13 +1233,17 @@ impl ConstraintSatisfactionSolver {
                         self.assignments.remove_last_trail_element();
 
                         let stored_conflict_info = StoredConflictInfo::EmptyDomain {
-                            conflict_nogood: empty_domain_reason,
+                            conflict_nogood: empty_domain_reason.0,
+                            conflict_constraint: empty_domain_reason.1,
                         };
                         self.state.declare_conflict(stored_conflict_info);
                         break;
                     }
                     // A propagator-specific reason for the current conflict.
-                    Inconsistency::Conflict(conflict_nogood) => {
+                    Inconsistency::Conflict(PropagationReason(
+                        conflict_nogood,
+                        conflict_constraint,
+                    )) => {
                         pumpkin_assert_advanced!(DebugHelper::debug_reported_failure(
                             &self.assignments,
                             &conflict_nogood,
@@ -1248,6 +1253,7 @@ impl ConstraintSatisfactionSolver {
 
                         let stored_conflict_info = StoredConflictInfo::Propagator {
                             conflict_nogood,
+                            conflict_constraint,
                             propagator_id,
                         };
                         self.state.declare_conflict(stored_conflict_info);
@@ -1314,7 +1320,7 @@ impl ConstraintSatisfactionSolver {
             let propagated = entry.predicate;
 
             // The proof inference for the propagation `R -> l` is `R /\ ~l -> false`.
-            let inference_premises = reason.iter().copied().chain(std::iter::once(!propagated));
+            let inference_premises = reason.0.iter().copied().chain(std::iter::once(!propagated));
             let _ = self
                 .internal_parameters
                 .proof_log
@@ -1330,7 +1336,7 @@ impl ConstraintSatisfactionSolver {
             // therefore we recursively look up which unit nogoods are involved in the premise of
             // the inference.
 
-            let mut to_explain: VecDeque<Predicate> = reason.iter().copied().collect();
+            let mut to_explain: VecDeque<Predicate> = reason.0.iter().copied().collect();
 
             while let Some(premise) = to_explain.pop_front() {
                 pumpkin_assert_simple!(self.assignments.is_predicate_satisfied(premise));
@@ -1412,9 +1418,11 @@ impl ConstraintSatisfactionSolver {
 
         let initialisation_status = new_propagator.initialise_at_root(&mut initialisation_context);
 
-        if let Err(conflict_explanation) = initialisation_status {
+        if let Err(PropagationReason(conflict_nogood, conflict_constraint)) = initialisation_status
+        {
             self.state.declare_conflict(StoredConflictInfo::Propagator {
-                conflict_nogood: conflict_explanation,
+                conflict_nogood,
+                conflict_constraint,
                 propagator_id: new_propagator_id,
             });
             self.complete_proof();
@@ -1637,6 +1645,7 @@ impl CSPSolverState {
                 violated_assumption,
             } => StoredConflictInfo::EmptyDomain {
                 conflict_nogood: vec![*violated_assumption, !(*violated_assumption)].into(),
+                conflict_constraint: None,
             },
             _ => {
                 panic!("Cannot extract conflict clause if solver is not in a conflict.");

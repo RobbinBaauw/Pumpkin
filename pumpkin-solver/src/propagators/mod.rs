@@ -6,8 +6,8 @@ pub(crate) mod arithmetic;
 mod cumulative;
 pub(crate) mod element;
 pub(crate) mod nogoods;
-mod reified_propagator;
 pub(crate) mod predicate_literal_propagator;
+mod reified_propagator;
 
 pub(crate) use arithmetic::*;
 pub use cumulative::CumulativeExplanationType;

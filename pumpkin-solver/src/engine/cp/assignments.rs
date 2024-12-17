@@ -143,12 +143,7 @@ impl Assignments {
             id: self.num_domains(),
         };
 
-        let _ = self.domains.push(IntegerDomain::new(
-            0,
-            1,
-            id,
-            0,
-        ));
+        let _ = self.domains.push(IntegerDomain::new(0, 1, id, 0));
 
         self.events.grow();
         self.backtrack_events.grow();

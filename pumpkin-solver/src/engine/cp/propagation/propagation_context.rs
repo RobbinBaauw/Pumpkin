@@ -71,7 +71,7 @@ impl<'a> PropagationContextMut<'a> {
         if let Some(reification_literal) = self.reification_literal {
             match reason {
                 Reason::Eager(mut conjunction) => {
-                    conjunction.add(reification_literal.get_true_predicate());
+                    conjunction.0.add(reification_literal.get_true_predicate());
                     Reason::Eager(conjunction)
                 }
                 Reason::DynamicLazy(_) => todo!(),

@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use drcp_format::steps::StepId;
 
 use super::minimisers::SemanticMinimiser;
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::basic_types::HashMap;
 use crate::basic_types::StoredConflictInfo;
 use crate::branching::Brancher;
@@ -95,6 +96,7 @@ impl<'a> ConflictAnalysisContext<'a> {
             StoredConflictInfo::Propagator {
                 conflict_nogood,
                 propagator_id,
+                ..
             } => {
                 let _ = self.proof_log.log_inference(
                     self.propagators.get_tag(propagator_id),
@@ -112,7 +114,9 @@ impl<'a> ConflictAnalysisContext<'a> {
                     .copied()
                     .collect()
             }
-            StoredConflictInfo::EmptyDomain { conflict_nogood } => {
+            StoredConflictInfo::EmptyDomain {
+                conflict_nogood, ..
+            } => {
                 conflict_nogood
                     .iter()
                     .filter(|p| {
@@ -124,6 +128,22 @@ impl<'a> ConflictAnalysisContext<'a> {
                     .copied()
                     .collect()
             }
+            StoredConflictInfo::RootLevelConflict(_) => {
+                unreachable!("Should never attempt to learn a nogood from a root level conflict")
+            }
+        }
+    }
+
+    pub(crate) fn get_conflict_constraint(&mut self) -> Option<LinearLessOrEqual> {
+        match self.solver_state.get_conflict_info() {
+            StoredConflictInfo::Propagator {
+                conflict_constraint,
+                ..
+            }
+            | StoredConflictInfo::EmptyDomain {
+                conflict_constraint,
+                ..
+            } => conflict_constraint,
             StoredConflictInfo::RootLevelConflict(_) => {
                 unreachable!("Should never attempt to learn a nogood from a root level conflict")
             }
@@ -181,7 +201,8 @@ impl<'a> ConflictAnalysisContext<'a> {
 
             let reason = reason_store
                 .get_or_compute(reason_ref, explanation_context, propagators)
-                .expect("reason reference should not be stale");
+                .expect("reason reference should not be stale")
+                .0;
             if propagator_id == ConstraintSatisfactionSolver::get_nogood_propagator_id()
                 && reason.is_empty()
             {

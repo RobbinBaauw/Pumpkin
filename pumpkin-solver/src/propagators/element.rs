@@ -1,5 +1,6 @@
 use bitfield_struct::bitfield;
 
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 use crate::conjunction;
 use crate::engine::domain_events::DomainEvents;
@@ -9,11 +10,11 @@ use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::propagation::ReadDomains;
+use crate::engine::reason::PropagationReasonRef;
 use crate::engine::reason::Reason;
 use crate::engine::variables::IntegerVariable;
 use crate::predicate;
 use crate::predicates::Predicate;
-use crate::predicates::PropositionalConjunction;
 
 /// Arc-consistent propagator for constraint `element([x_1, \ldots, x_n], i, e)`, where `x_j` are
 ///  variables, `i` is an integer variable, and `e` is a variable, which holds iff `x_i = e`
@@ -80,7 +81,7 @@ where
     fn initialise_at_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         self.array.iter().enumerate().for_each(|(i, x_i)| {
             let _ = context.register(
                 x_i.clone(),
@@ -93,7 +94,7 @@ where
         Ok(())
     }
 
-    fn lazy_explanation(&mut self, code: u64, _: ExplanationContext) -> &[Predicate] {
+    fn lazy_explanation(&mut self, code: u64, _: ExplanationContext) -> PropagationReasonRef<'_> {
         let payload = RightHandSideReason::from_bits(code);
 
         self.rhs_reason_buffer.clear();
@@ -103,7 +104,7 @@ where
                 Bound::Upper => predicate![variable <= payload.value()],
             }));
 
-        &self.rhs_reason_buffer
+        PropagationReasonRef::from(self.rhs_reason_buffer.as_slice())
     }
 }
 

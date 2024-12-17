@@ -12,6 +12,7 @@ use crate::basic_types::moving_averages::MovingAverage;
 use crate::basic_types::ConstraintOperationError;
 use crate::basic_types::HashMap;
 use crate::basic_types::Inconsistency;
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropositionalConjunction;
 use crate::conjunction;
 use crate::containers::KeyedVec;
@@ -28,6 +29,7 @@ use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::propagation::ReadDomains;
+use crate::engine::reason::PropagationReasonRef;
 use crate::engine::reason::Reason;
 use crate::engine::reason::ReasonStore;
 use crate::engine::variables::DomainId;
@@ -904,7 +906,11 @@ impl Propagator for NogoodPropagator {
     ///
     /// In case of the noogood propagator, lazy explanations internally also update information
     /// about the LBD and activity of the nogood, which is used when cleaning up nogoods.
-    fn lazy_explanation(&mut self, code: u64, context: ExplanationContext) -> &[Predicate] {
+    fn lazy_explanation(
+        &mut self,
+        code: u64,
+        context: ExplanationContext,
+    ) -> PropagationReasonRef<'_> {
         let id = NogoodId { id: code as u32 };
 
         // Update the LBD and activity of the nogood, if appropriate.
@@ -949,13 +955,13 @@ impl Propagator for NogoodPropagator {
             self.nogoods[id].activity += self.parameters.activity_bump_increment;
         }
         // update LBD, so we need code plus assignments as input.
-        &self.nogoods[id].predicates.as_slice()[1..]
+        PropagationReasonRef::from(&self.nogoods[id].predicates.as_slice()[1..])
     }
 
     fn initialise_at_root(
         &mut self,
         _context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         // There should be no nogoods yet
         pumpkin_assert_simple!(self.nogoods.len() == 0);
         Ok(())
@@ -992,7 +998,7 @@ impl NogoodPropagator {
 
         if skip_nogood_learning {
             let propagating_predicate = nogood[0];
-            let reason = Reason::Eager(PropositionalConjunction::from(&nogood.as_slice()[1..]));
+            let reason = PropositionalConjunction::from(&nogood.as_slice()[1..]);
             context
                 .post_predicate(!propagating_predicate, reason)
                 .expect("Cannot fail to add the asserting predicate.");
@@ -1444,7 +1450,12 @@ impl NogoodPropagator {
         // If all predicates in the nogood are satisfied, there is a conflict.
         if num_satisfied_predicates == nogood_len {
             return Err(Inconsistency::Conflict(
-                nogood.predicates.iter().copied().collect(),
+                nogood
+                    .predicates
+                    .iter()
+                    .copied()
+                    .collect::<PropositionalConjunction>()
+                    .into(),
             ));
         }
         // If all but one predicate are satisfied, then we can propagate.

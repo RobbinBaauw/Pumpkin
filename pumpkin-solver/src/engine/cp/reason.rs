@@ -3,6 +3,8 @@ use std::fmt::Debug;
 use super::propagation::store::PropagatorStore;
 use super::propagation::ExplanationContext;
 use super::propagation::PropagatorId;
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropositionalConjunction;
 use crate::basic_types::Trail;
 use crate::predicates::Predicate;
@@ -32,7 +34,7 @@ impl ReasonStore {
         reference: ReasonRef,
         context: ExplanationContext<'_>,
         propagators: &'this mut PropagatorStore,
-    ) -> Option<&'this [Predicate]> {
+    ) -> Option<PropagationReasonRef<'this>> {
         self.trail
             .get(reference.0 as usize)
             .map(|reason| reason.1.compute(context, reason.0, propagators))
@@ -71,12 +73,23 @@ impl ReasonStore {
 #[derive(Default, Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct ReasonRef(pub(crate) u32);
 
+pub(crate) struct PropagationReasonRef<'a>(
+    pub(crate) &'a [Predicate],
+    pub(crate) &'a Option<LinearLessOrEqual>,
+);
+
+impl<'a> From<&'a [Predicate]> for PropagationReasonRef<'a> {
+    fn from(value: &'a [Predicate]) -> Self {
+        PropagationReasonRef(value, &None)
+    }
+}
+
 /// A reason for CP propagator to make a change
 #[derive(Debug)]
 pub(crate) enum Reason {
     /// An eager reason contains the propositional conjunction with the reason, without the
     ///   propagated predicate.
-    Eager(PropositionalConjunction),
+    Eager(PropagationReason),
     /// A lazy reason, which is computed on-demand rather than up-front. This is also referred to
     /// as a 'backward' reason.
     ///
@@ -92,7 +105,7 @@ impl Reason {
         context: ExplanationContext<'_>,
         propagator_id: PropagatorId,
         propagators: &'a mut PropagatorStore,
-    ) -> &'a [Predicate] {
+    ) -> PropagationReasonRef<'a> {
         match self {
             // We do not replace the reason with an eager explanation for dynamic lazy explanations.
             //
@@ -100,13 +113,27 @@ impl Reason {
             Reason::DynamicLazy(code) => {
                 propagators[propagator_id].lazy_explanation(*code, context)
             }
-            Reason::Eager(result) => result.as_slice(),
+            Reason::Eager(PropagationReason(conjunction, constraint)) => {
+                PropagationReasonRef(conjunction.as_slice(), constraint)
+            }
         }
     }
 }
 
 impl From<PropositionalConjunction> for Reason {
     fn from(value: PropositionalConjunction) -> Self {
+        Reason::Eager(PropagationReason(value, None))
+    }
+}
+
+impl From<(PropositionalConjunction, LinearLessOrEqual)> for Reason {
+    fn from(value: (PropositionalConjunction, LinearLessOrEqual)) -> Self {
+        Reason::Eager(PropagationReason(value.0, Some(value.1)))
+    }
+}
+
+impl From<PropagationReason> for Reason {
+    fn from(value: PropagationReason) -> Self {
         Reason::Eager(value)
     }
 }

@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use enumset::enum_set;
 
+use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 use crate::basic_types::PropositionalConjunction;
 use crate::engine::cp::propagation::ReadDomains;
@@ -137,7 +138,7 @@ where
     fn initialise_at_root(
         &mut self,
         context: &mut PropagatorInitialisationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    ) -> Result<(), PropagationReason> {
         self.terms.iter().enumerate().for_each(|(i, x_i)| {
             let _ = context.register(x_i.clone(), DomainEvents::ASSIGN, LocalId::from(i as u32));
             let _ = context.register_for_backtrack_events(
