@@ -137,6 +137,25 @@ impl Assignments {
 
         id
     }
+
+    pub(crate) fn new_aux_variable(&mut self) -> DomainId {
+        let id = DomainId {
+            id: self.num_domains(),
+        };
+
+        let _ = self.domains.push(IntegerDomain::new(
+            0,
+            1,
+            id,
+            0,
+        ));
+
+        self.events.grow();
+        self.backtrack_events.grow();
+
+        id
+    }
+
     pub fn create_new_integer_variable_sparse(&mut self, mut values: Vec<i32>) -> DomainId {
         assert!(
             !values.is_empty(),

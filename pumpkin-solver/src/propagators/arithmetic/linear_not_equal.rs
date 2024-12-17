@@ -104,7 +104,7 @@ where
         _context: PropagationContext,
         local_id: LocalId,
         event: OpaqueDomainEvent,
-    ) {
+    ) -> EnqueueDecision {
         if matches!(
             self.terms[local_id.unpack() as usize].unpack_event(event),
             IntDomainEvent::Assign
@@ -130,6 +130,8 @@ where
             // We set the flag whether the unfixed variable has been updated
             self.unfixed_variable_has_been_updated = false;
         }
+
+        EnqueueDecision::Skip
     }
 
     fn initialise_at_root(

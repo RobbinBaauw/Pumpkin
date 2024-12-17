@@ -420,7 +420,7 @@ impl<Var: IntegerVariable + 'static + Debug, const SYNCHRONISE: bool> Propagator
         context: PropagationContext,
         local_id: LocalId,
         event: OpaqueDomainEvent,
-    ) {
+    ) -> EnqueueDecision {
         let updated_task = Rc::clone(&self.parameters.tasks[local_id.unpack() as usize]);
 
         backtrack_update(context, &mut self.updatable_structures, &updated_task);
@@ -438,6 +438,8 @@ impl<Var: IntegerVariable + 'static + Debug, const SYNCHRONISE: bool> Propagator
             // The start variable of the task has been unassigned, we should restore it to unfixed
             self.updatable_structures.unfix_task(updated_task)
         }
+
+        EnqueueDecision::Skip
     }
 
     fn synchronise(&mut self, context: PropagationContext) {

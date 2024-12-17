@@ -116,7 +116,8 @@ pub(crate) trait Propagator: Downcast {
         _context: PropagationContext,
         _local_id: LocalId,
         _event: OpaqueDomainEvent,
-    ) {
+    ) -> EnqueueDecision {
+        EnqueueDecision::Skip
     }
 
     /// Called each time the [`ConstraintSatisfactionSolver`] backtracks, the propagator can then

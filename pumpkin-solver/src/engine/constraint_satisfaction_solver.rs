@@ -229,6 +229,7 @@ impl ConstraintSatisfactionSolver {
         backtrack_event_drain: &mut Vec<(IntDomainEvent, DomainId)>,
         assignments: &mut Assignments,
         propagators: &mut PropagatorStore,
+        propagator_queue: &mut PropagatorQueue,
     ) -> bool {
         // If there are no variables being watched then there is no reason to perform these
         // operations
@@ -246,7 +247,12 @@ impl ConstraintSatisfactionSolver {
                     let propagator = &mut propagators[propagator_var.propagator];
                     let context = PropagationContext::new(assignments);
 
-                    propagator.notify_backtrack(context, propagator_var.variable, event.into())
+                    let enqueue_decision = propagator.notify_backtrack(context, propagator_var.variable, event.into());
+
+                    if enqueue_decision == EnqueueDecision::Enqueue {
+                        propagator_queue
+                            .enqueue_propagator(propagator_var.propagator, propagator.priority());
+                    }
                 }
             }
         }
@@ -1129,6 +1135,7 @@ impl ConstraintSatisfactionSolver {
             backtrack_event_drain,
             assignments,
             propagators,
+            propagator_queue,
         );
 
         event_drain.clear();

@@ -9,6 +9,7 @@ use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::propagation::ReadDomains;
 use crate::engine::DomainEvents;
+use crate::engine::propagation::EnqueueDecision::Enqueue;
 use crate::predicates::PropositionalConjunction;
 use crate::pumpkin_assert_simple;
 use crate::variables::Literal;
@@ -68,11 +69,12 @@ impl<WrappedPropagator: Propagator> Propagator for ReifiedPropagator<WrappedProp
         context: PropagationContext,
         local_id: LocalId,
         event: OpaqueDomainEvent,
-    ) {
+    ) -> EnqueueDecision {
         if local_id < self.reification_literal_id {
             self.propagator.notify_backtrack(context, local_id, event)
         } else {
             pumpkin_assert_simple!(local_id == self.reification_literal_id);
+            EnqueueDecision::Skip
         }
     }
 

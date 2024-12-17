@@ -408,7 +408,7 @@ impl<Var: IntegerVariable + 'static, const SYNCHRONISE: bool> Propagator
         context: PropagationContext,
         local_id: LocalId,
         event: OpaqueDomainEvent,
-    ) {
+    ) -> EnqueueDecision {
         pumpkin_assert_simple!(self.parameters.options.incremental_backtracking);
 
         let updated_task = Rc::clone(&self.parameters.tasks[local_id.unpack() as usize]);
@@ -428,6 +428,8 @@ impl<Var: IntegerVariable + 'static, const SYNCHRONISE: bool> Propagator
             // The start variable of the task has been unassigned, we should restore it to unfixed
             self.updatable_structures.unfix_task(updated_task);
         }
+
+        EnqueueDecision::Skip
     }
 
     fn synchronise(&mut self, context: PropagationContext) {

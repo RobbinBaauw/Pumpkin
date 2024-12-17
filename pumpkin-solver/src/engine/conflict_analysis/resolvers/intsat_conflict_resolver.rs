@@ -11,14 +11,16 @@ use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::engine::conflict_analysis::ConflictResolver;
 use crate::engine::conflict_analysis::LearnedConstraint;
 use crate::engine::conflict_analysis::LearnedNogood;
-use crate::engine::propagation::PropagatorInitialisationContext;
+use crate::engine::propagation::{Propagator, PropagatorId, PropagatorInitialisationContext};
 use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
+use crate::propagators::predicate_literal_propagator::PredicateLiteralPropagator;
 use crate::pumpkin_assert_ne_simple;
 use crate::pumpkin_assert_simple;
 use crate::statistics::learned_constraint_log::LearnedConstraintLogItem;
-use crate::variables::DomainId;
+use crate::statistics::statistic_logger::Propagator;
+use crate::variables::{DomainId, Literal};
 
 static LOG_NOGOODS: bool = false;
 
@@ -49,6 +51,25 @@ impl IntSatConflictResolver {
         debug!("==>==> {reason}, trying resolution!");
         context.counters.intsat_statistics.intsat_fallback_used += 1;
         self.resolution_resolver.resolve_conflict(context)
+    }
+
+    fn create_new_propagator(context: &mut ConflictAnalysisContext, propagator: impl Propagator) -> PropagatorId {
+        let new_pred_prop_id = context.propagators.alloc(Box::new(propagator), None);
+        let new_propagator = &mut context.propagators[new_pred_prop_id];
+
+        let mut initialisation_context = PropagatorInitialisationContext::new(
+            &mut context.watch_list_cp,
+            new_pred_prop_id,
+            &context.assignments,
+        );
+
+        let _ = new_propagator.initialise_at_non_root(&mut initialisation_context);
+
+        context
+            .propagator_queue
+            .enqueue_propagator(new_pred_prop_id, new_propagator.priority());
+
+        new_pred_prop_id
     }
 
     fn apply_cut(
@@ -470,7 +491,7 @@ impl ConflictResolver for IntSatConflictResolver {
             .as_ref()
             .expect("Expected nogood / constraint");
 
-        let Constraint(learned_constraint) = resolve_result_unwrap else {
+        let Constraint(mut learned_constraint) = resolve_result_unwrap else {
             return self.resolution_resolver.process(context, resolve_result);
         };
 
@@ -488,14 +509,36 @@ impl ConflictResolver for IntSatConflictResolver {
             context.assignments.num_trail_entries() - 1
         );
 
+        // - Create binary variables & propagator
+        // - (either) Set the lower/upper bound updates to reflect the correct state (with what trail entries?)
+        //   (or) Alternatively, dynamically retrieve the state (though then there are still no trail entries)
+        // - Always trigger the propagators for the learned constraints on backtrack!
+
+        // We actually never need to put anything on the trail. Just make sure it propagates on backtracking...
+        // The LinLeq propagator only requires lower bounds at this point in time,
+        // which is always correct if you immediately apply propagator after backtracking.
+        // Same for nogood propagator. Let's see...
+        for (var_id, var_pred) in learned_constraint.auxiliary_variables {
+            let new_var_id = context.assignments.new_aux_variable();
+
+            // Update the ids using this var to their new ids
+            learned_constraint.constraint
+                .lhs
+                .iter_mut()
+                .filter(|(id, scale)| *id == var_id)
+                .for_each(|(id, scale)| *id = new_var_id);
+
+            let new_pred_prop = PredicateLiteralPropagator::new(var_pred, new_var_id);
+            let _ = Self::create_new_propagator(context, new_pred_prop);
+        }
+
         let new_linear_prop = LinearLessOrEqualPropagator::new_learned(
             learned_constraint.constraint.to_vars().into_boxed_slice(),
             learned_constraint.constraint.rhs,
             context.assignments,
             learned_constraint.alternative_nogood.clone(),
         );
-        let new_propagator_id = context.propagators.alloc(Box::new(new_linear_prop), None);
-        let new_propagator = &mut context.propagators[new_propagator_id];
+        let new_propagator_id = Self::create_new_propagator(context, new_linear_prop);
 
         if !LOG_NOGOODS {
             if let Some(learned_constraint_log) = &mut context.learned_constraint_log {
@@ -506,21 +549,6 @@ impl ConflictResolver for IntSatConflictResolver {
             }
         }
 
-        let mut initialisation_context = PropagatorInitialisationContext::new(
-            &mut context.watch_list_cp,
-            new_propagator_id,
-            &context.assignments,
-        );
-
-        let _ = new_propagator.initialise_at_non_root(&mut initialisation_context);
-
-        // We know this the previous call can result in Err (as we also backtrack when the
-        // constraint is still conflicting). We do not return an error however, as the fact
-        // that the propagator is not happy will be detected next cycle
-        // IntSat: re-start conflict analysis in this case, we mimic this here
-        context
-            .propagator_queue
-            .enqueue_propagator(new_propagator_id, new_propagator.priority());
         Ok(())
     }
 }
