@@ -130,6 +130,7 @@ impl Assignments {
             upper_bound,
             id,
             self.trail.len() - 1,
+            None,
         ));
 
         self.events.grow();
@@ -138,12 +139,14 @@ impl Assignments {
         id
     }
 
-    pub(crate) fn new_aux_variable(&mut self) -> DomainId {
+    pub(crate) fn new_aux_variable(&mut self, predicate: Predicate) -> DomainId {
         let id = DomainId {
             id: self.num_domains(),
         };
 
-        let _ = self.domains.push(IntegerDomain::new(0, 1, id, 0));
+        let _ = self
+            .domains
+            .push(IntegerDomain::new(0, 1, id, 0, Some(predicate)));
 
         self.events.grow();
         self.backtrack_events.grow();
@@ -282,7 +285,15 @@ impl Assignments {
         domain_id: DomainId,
         trail_position: usize,
     ) -> i32 {
-        self.domains[domain_id].lower_bound_at_trail_position(trail_position)
+        let domain = &self.domains[domain_id];
+        if let Some(predicate) = domain.auxiliary_predicate {
+            if let Some(is_true) =
+                self.evaluate_predicate_at_trail_position(predicate, trail_position)
+            {
+                return i32::from(is_true);
+            }
+        }
+        domain.lower_bound_at_trail_position(trail_position)
     }
 
     pub(crate) fn get_upper_bound(&self, domain_id: DomainId) -> i32 {
@@ -294,7 +305,15 @@ impl Assignments {
         domain_id: DomainId,
         trail_position: usize,
     ) -> i32 {
-        self.domains[domain_id].upper_bound_at_trail_position(trail_position)
+        let domain = &self.domains[domain_id];
+        if let Some(predicate) = domain.auxiliary_predicate {
+            if let Some(is_true) =
+                self.evaluate_predicate_at_trail_position(predicate, trail_position)
+            {
+                return i32::from(is_true);
+            }
+        }
+        domain.upper_bound_at_trail_position(trail_position)
     }
 
     pub(crate) fn get_initial_lower_bound(&self, domain_id: DomainId) -> i32 {
@@ -671,6 +690,48 @@ impl Assignments {
         }
     }
 
+    pub(crate) fn evaluate_predicate_at_trail_position(
+        &self,
+        predicate: Predicate,
+        trail_position: usize,
+    ) -> Option<bool> {
+        match predicate {
+            Predicate::LowerBound {
+                domain_id,
+                lower_bound,
+            } => {
+                if self.get_lower_bound_at_trail_position(domain_id, trail_position) >= lower_bound
+                {
+                    Some(true)
+                } else if self.get_upper_bound_at_trail_position(domain_id, trail_position)
+                    < lower_bound
+                {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
+            Predicate::UpperBound {
+                domain_id,
+                upper_bound,
+            } => {
+                if self.get_upper_bound_at_trail_position(domain_id, trail_position) <= upper_bound
+                {
+                    Some(true)
+                } else if self.get_lower_bound_at_trail_position(domain_id, trail_position)
+                    > upper_bound
+                {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
+            Predicate::NotEqual { .. } | Predicate::Equal { .. } => {
+                todo!("NotEqual and Equal predicates are not yet supported!")
+            }
+        }
+    }
+
     pub(crate) fn is_predicate_satisfied(&self, predicate: Predicate) -> bool {
         self.evaluate_predicate(predicate)
             .is_some_and(|truth_value| truth_value)
@@ -838,6 +899,7 @@ struct HoleUpdateInfo {
 #[derive(Clone, Debug)]
 struct IntegerDomain {
     id: DomainId,
+    auxiliary_predicate: Option<Predicate>,
     /// The 'updates' fields chronologically records the changes to the domain.
     lower_bound_updates: Vec<BoundUpdateInfo>,
     upper_bound_updates: Vec<BoundUpdateInfo>,
@@ -857,6 +919,7 @@ impl IntegerDomain {
         upper_bound: i32,
         id: DomainId,
         initial_bounds_below_trail: usize,
+        auxiliary_predicate: Option<Predicate>,
     ) -> IntegerDomain {
         pumpkin_assert_simple!(lower_bound <= upper_bound, "Cannot create an empty domain.");
 
@@ -874,6 +937,7 @@ impl IntegerDomain {
 
         IntegerDomain {
             id,
+            auxiliary_predicate,
             lower_bound_updates,
             upper_bound_updates,
             hole_updates: vec![],

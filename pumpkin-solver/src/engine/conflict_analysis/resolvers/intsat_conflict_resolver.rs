@@ -502,7 +502,7 @@ impl ConflictResolver for IntSatConflictResolver {
         // backtracking. Same for nogood propagator. Let's see...
         let mut learned_constraint = learned_constraint.clone();
         for (var_id, var_pred) in learned_constraint.auxiliary_variables {
-            let new_var_id = context.assignments.new_aux_variable();
+            let new_var_id = context.assignments.new_aux_variable(var_pred);
 
             // Update the ids using this var to their new ids
             learned_constraint

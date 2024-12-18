@@ -84,15 +84,15 @@ impl LinearLessOrEqual {
         false
     }
 
-    pub(crate) fn overflows(&self, assignments: &Assignments, trail_index: usize) -> bool {
-        if self.lb_lhs_overflows(assignments, trail_index) {
+    pub(crate) fn overflows(&self, assignments: &Assignments, trail_position: usize) -> bool {
+        if self.lb_lhs_overflows(assignments, trail_position) {
             return true;
         }
 
-        let slack = self.slack(assignments, trail_index);
+        let slack = self.slack(assignments, trail_position);
         for x_i in self.to_vars() {
             let bound: Result<i32, _> = (slack
-                + x_i.lower_bound_at_trail_position(assignments, trail_index) as i64)
+                + x_i.lower_bound_at_trail_position(assignments, trail_position) as i64)
                 .try_into();
 
             if bound.is_err() {
