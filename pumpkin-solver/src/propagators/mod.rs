@@ -5,8 +5,8 @@
 pub(crate) mod arithmetic;
 mod cumulative;
 pub(crate) mod element;
+pub(crate) mod linear_inequality_literal_propagator;
 pub(crate) mod nogoods;
-pub(crate) mod predicate_literal_propagator;
 mod reified_propagator;
 
 pub(crate) use arithmetic::*;

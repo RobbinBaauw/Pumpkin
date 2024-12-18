@@ -46,12 +46,39 @@ impl LinearLessOrEqual {
         })
     }
 
+    pub(crate) fn evaluate_at_trail_position(
+        &self,
+        assignments: &Assignments,
+        trail_position: usize,
+    ) -> Option<bool> {
+        let ub_lhs = self.ub_lhs(assignments, trail_position);
+        let lb_lhs = self.lb_lhs(assignments, trail_position);
+
+        if ub_lhs <= self.rhs as i64 {
+            Some(true)
+        } else if lb_lhs > self.rhs as i64 {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn lb_lhs(&self, assignments: &Assignments, trail_position: usize) -> i64 {
         self.lhs
             .iter()
             .map(|(var, scale)| {
                 let scaled_var = var.scaled(*scale);
                 scaled_var.lower_bound_at_trail_position(assignments, trail_position) as i64
+            })
+            .sum::<i64>()
+    }
+
+    pub(crate) fn ub_lhs(&self, assignments: &Assignments, trail_position: usize) -> i64 {
+        self.lhs
+            .iter()
+            .map(|(var, scale)| {
+                let scaled_var = var.scaled(*scale);
+                scaled_var.upper_bound_at_trail_position(assignments, trail_position) as i64
             })
             .sum::<i64>()
     }

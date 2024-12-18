@@ -17,8 +17,8 @@ use crate::engine::propagation::PropagatorId;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::ResolutionResolver;
 use crate::predicates::Predicate;
+use crate::propagators::linear_inequality_literal_propagator::LinearInequalityLiteralPropagator;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
-use crate::propagators::predicate_literal_propagator::PredicateLiteralPropagator;
 use crate::pumpkin_assert_ne_simple;
 use crate::pumpkin_assert_simple;
 use crate::statistics::learned_constraint_log::LearnedConstraintLogItem;
@@ -501,8 +501,8 @@ impl ConflictResolver for IntSatConflictResolver {
         // time, which is always correct if you immediately apply propagator after
         // backtracking. Same for nogood propagator. Let's see...
         let mut learned_constraint = learned_constraint.clone();
-        for (var_id, var_pred) in learned_constraint.auxiliary_variables {
-            let new_var_id = context.assignments.new_aux_variable(var_pred);
+        for (var_id, var_linleq) in learned_constraint.auxiliary_variables {
+            let new_var_id = context.assignments.new_aux_variable(var_linleq.clone());
 
             // Update the ids using this var to their new ids
             learned_constraint
@@ -512,7 +512,7 @@ impl ConflictResolver for IntSatConflictResolver {
                 .filter(|(id, _)| *id == var_id)
                 .for_each(|(id, _)| *id = new_var_id);
 
-            let new_pred_prop = PredicateLiteralPropagator::new(var_pred, new_var_id);
+            let new_pred_prop = LinearInequalityLiteralPropagator::new(var_linleq, new_var_id);
             let _ = Self::create_new_propagator(context, new_pred_prop);
         }
 

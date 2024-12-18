@@ -1,3 +1,4 @@
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
 use crate::basic_types::HashMap;
 use crate::basic_types::Trail;
 use crate::containers::KeyedVec;
@@ -139,14 +140,14 @@ impl Assignments {
         id
     }
 
-    pub(crate) fn new_aux_variable(&mut self, predicate: Predicate) -> DomainId {
+    pub(crate) fn new_aux_variable(&mut self, linear_leq: LinearLessOrEqual) -> DomainId {
         let id = DomainId {
             id: self.num_domains(),
         };
 
         let _ = self
             .domains
-            .push(IntegerDomain::new(0, 1, id, 0, Some(predicate)));
+            .push(IntegerDomain::new(0, 1, id, 0, Some(linear_leq)));
 
         self.events.grow();
         self.backtrack_events.grow();
@@ -286,10 +287,8 @@ impl Assignments {
         trail_position: usize,
     ) -> i32 {
         let domain = &self.domains[domain_id];
-        if let Some(predicate) = domain.auxiliary_predicate {
-            if let Some(is_true) =
-                self.evaluate_predicate_at_trail_position(predicate, trail_position)
-            {
+        if let Some(linleq) = &domain.auxiliary_linleq {
+            if let Some(is_true) = linleq.evaluate_at_trail_position(self, trail_position) {
                 return i32::from(is_true);
             }
         }
@@ -306,10 +305,8 @@ impl Assignments {
         trail_position: usize,
     ) -> i32 {
         let domain = &self.domains[domain_id];
-        if let Some(predicate) = domain.auxiliary_predicate {
-            if let Some(is_true) =
-                self.evaluate_predicate_at_trail_position(predicate, trail_position)
-            {
+        if let Some(linleq) = &domain.auxiliary_linleq {
+            if let Some(is_true) = linleq.evaluate_at_trail_position(self, trail_position) {
                 return i32::from(is_true);
             }
         }
@@ -690,48 +687,6 @@ impl Assignments {
         }
     }
 
-    pub(crate) fn evaluate_predicate_at_trail_position(
-        &self,
-        predicate: Predicate,
-        trail_position: usize,
-    ) -> Option<bool> {
-        match predicate {
-            Predicate::LowerBound {
-                domain_id,
-                lower_bound,
-            } => {
-                if self.get_lower_bound_at_trail_position(domain_id, trail_position) >= lower_bound
-                {
-                    Some(true)
-                } else if self.get_upper_bound_at_trail_position(domain_id, trail_position)
-                    < lower_bound
-                {
-                    Some(false)
-                } else {
-                    None
-                }
-            }
-            Predicate::UpperBound {
-                domain_id,
-                upper_bound,
-            } => {
-                if self.get_upper_bound_at_trail_position(domain_id, trail_position) <= upper_bound
-                {
-                    Some(true)
-                } else if self.get_lower_bound_at_trail_position(domain_id, trail_position)
-                    > upper_bound
-                {
-                    Some(false)
-                } else {
-                    None
-                }
-            }
-            Predicate::NotEqual { .. } | Predicate::Equal { .. } => {
-                todo!("NotEqual and Equal predicates are not yet supported!")
-            }
-        }
-    }
-
     pub(crate) fn is_predicate_satisfied(&self, predicate: Predicate) -> bool {
         self.evaluate_predicate(predicate)
             .is_some_and(|truth_value| truth_value)
@@ -899,7 +854,7 @@ struct HoleUpdateInfo {
 #[derive(Clone, Debug)]
 struct IntegerDomain {
     id: DomainId,
-    auxiliary_predicate: Option<Predicate>,
+    auxiliary_linleq: Option<LinearLessOrEqual>,
     /// The 'updates' fields chronologically records the changes to the domain.
     lower_bound_updates: Vec<BoundUpdateInfo>,
     upper_bound_updates: Vec<BoundUpdateInfo>,
@@ -919,7 +874,7 @@ impl IntegerDomain {
         upper_bound: i32,
         id: DomainId,
         initial_bounds_below_trail: usize,
-        auxiliary_predicate: Option<Predicate>,
+        auxiliary_linleq: Option<LinearLessOrEqual>,
     ) -> IntegerDomain {
         pumpkin_assert_simple!(lower_bound <= upper_bound, "Cannot create an empty domain.");
 
@@ -937,7 +892,7 @@ impl IntegerDomain {
 
         IntegerDomain {
             id,
-            auxiliary_predicate,
+            auxiliary_linleq,
             lower_bound_updates,
             upper_bound_updates,
             hole_updates: vec![],
