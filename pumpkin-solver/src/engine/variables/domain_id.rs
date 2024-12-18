@@ -45,6 +45,10 @@ impl IntegerVariable for DomainId {
         assignment.get_lower_bound_at_trail_position(*self, trail_position)
     }
 
+    fn lower_bound_initial(&self, assignment: &Assignments) -> i32 {
+        assignment.get_initial_lower_bound(*self)
+    }
+
     fn upper_bound(&self, assignment: &Assignments) -> i32 {
         assignment.get_upper_bound(*self)
     }
@@ -55,6 +59,10 @@ impl IntegerVariable for DomainId {
         trail_position: usize,
     ) -> i32 {
         assignment.get_upper_bound_at_trail_position(*self, trail_position)
+    }
+
+    fn upper_bound_initial(&self, assignment: &Assignments) -> i32 {
+        assignment.get_initial_upper_bound(*self)
     }
 
     fn contains(&self, assignment: &Assignments, value: i32) -> bool {

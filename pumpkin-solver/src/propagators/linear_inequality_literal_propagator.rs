@@ -31,16 +31,16 @@ impl LinearInequalityLiteralPropagator {
         }
     }
 
-    fn get_propagation_reason_constraint(
-        &self,
-        assignments: &Assignments,
-        trail_position: usize,
-    ) -> LinearLessOrEqual {
+    fn get_propagation_reason_constraint(&self, assignments: &Assignments) -> LinearLessOrEqual {
         // We're linking Ax <= b <-> p, meaning we have two equations:
         // * Ax <= b + M(1-p)
         // * Ax > b - Mp, or Ax >= b + 1 - Mp, or -Ax <= -b - 1 + Mp
         //
-        // We need M to be sufficiently large, and then as small as possible.
+        // Rewriting to linear inequalities leads to
+        // * Ax + Mp <= b + M
+        // * -Ax - Mp <= -b - 1
+        //
+        // Determining M: we need M to be sufficiently large, and then as small as possible.
         // Assume the same equations in which M has to take effect:
         // * Ax - b <= M
         // * -Ax + b + 1 <= M
@@ -53,36 +53,27 @@ impl LinearInequalityLiteralPropagator {
         // We take the maximum of both found M's to find the final M.
         // If M is negative, we do not need it, so we have found a global constraint and can just
         // set M to 0
-        //
-        // After finding M, we again take the first versions of the equations and map these into new
-        // linear inequalities
 
-        let lb_lhs = self.linear_inequality.lb_lhs(assignments, trail_position) as i32; // TODO handle overflows
-        let ub_lhs = self.linear_inequality.ub_lhs(assignments, trail_position) as i32; // TODO handle overflows
+        let lb_lhs = self.linear_inequality.lhs.lb_initial(assignments) as i32; // TODO handle overflows
+        let ub_lhs = self.linear_inequality.lhs.ub_initial(assignments) as i32; // TODO handle overflows
         let rhs = self.linear_inequality.rhs;
 
         let big_m_opt_1 = (ub_lhs - rhs).max(0);
         let big_m_opt_2 = (-lb_lhs + rhs + 1).max(0);
         let big_m = big_m_opt_1.max(big_m_opt_2);
 
-        // Ax + Mp <= b + M
+        // Option 1: Ax + Mp <= b + M
         let mut opt_1_lhs = self.linear_inequality.lhs.clone();
-        opt_1_lhs.push((self.literal, big_m));
+        opt_1_lhs.0.push((self.literal, big_m));
 
-        let opt_1 = LinearLessOrEqual {
-            lhs: opt_1_lhs,
-            rhs: rhs + big_m,
-        };
+        let opt_1 = LinearLessOrEqual::new(opt_1_lhs, rhs + big_m);
 
-        // -Ax - Mp <= -b - 1
+        // Option 2: -Ax - Mp <= -b - 1
         let mut opt_2_lhs = self.linear_inequality.lhs.clone();
         opt_2_lhs.iter_mut().for_each(|(_, scale)| *scale *= -1);
-        opt_2_lhs.push((self.literal, -big_m));
+        opt_2_lhs.0.push((self.literal, -big_m));
 
-        let opt_2 = LinearLessOrEqual {
-            lhs: opt_2_lhs,
-            rhs: -rhs - 1,
-        };
+        let opt_2 = LinearLessOrEqual::new(opt_2_lhs, -rhs - 1);
 
         opt_1 // TODO pick the best option
     }
@@ -120,7 +111,7 @@ impl Propagator for LinearInequalityLiteralPropagator {
                     1,
                     (
                         conjunction,
-                        self.get_propagation_reason_constraint(context.assignments, trail_position),
+                        self.get_propagation_reason_constraint(context.assignments),
                     ),
                 )?
             }
@@ -141,7 +132,7 @@ impl Propagator for LinearInequalityLiteralPropagator {
                     0,
                     (
                         conjunction,
-                        self.get_propagation_reason_constraint(context.assignments, trail_position),
+                        self.get_propagation_reason_constraint(context.assignments),
                     ),
                 )?
             }
@@ -149,10 +140,10 @@ impl Propagator for LinearInequalityLiteralPropagator {
         };
 
         // Predicate that can be propagated!
-        if self.linear_inequality.lhs.len() == 1
+        if self.linear_inequality.lhs.0.len() == 1
             && context.assignments.is_domain_assigned(&self.literal)
         {
-            let (var_id, var_scale) = self.linear_inequality.lhs[0];
+            let (var_id, var_scale) = self.linear_inequality.lhs.0[0];
             let pred = predicate![var_id <= self.linear_inequality.rhs / var_scale];
 
             let lit_lb = self.literal.lower_bound(context.assignments);
@@ -161,7 +152,7 @@ impl Propagator for LinearInequalityLiteralPropagator {
                     pred,
                     (
                         conjunction!([self.literal >= 1]),
-                        self.get_propagation_reason_constraint(context.assignments, trail_position),
+                        self.get_propagation_reason_constraint(context.assignments),
                     ),
                 )?;
             } else {
@@ -169,7 +160,7 @@ impl Propagator for LinearInequalityLiteralPropagator {
                     !pred,
                     (
                         conjunction!([self.literal <= 0]),
-                        self.get_propagation_reason_constraint(context.assignments, trail_position),
+                        self.get_propagation_reason_constraint(context.assignments),
                     ),
                 )?;
             }

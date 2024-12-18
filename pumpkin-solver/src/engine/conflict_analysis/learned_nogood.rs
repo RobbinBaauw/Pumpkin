@@ -1,12 +1,9 @@
 use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
-use crate::basic_types::HashSet;
 use crate::predicates::Predicate;
-use crate::variables::DomainId;
 
 #[derive(Clone, Debug)]
 pub(crate) struct LearnedConstraint {
     pub(crate) constraint: LinearLessOrEqual,
-    pub(crate) auxiliary_variables: HashSet<(DomainId, LinearLessOrEqual)>,
     pub(crate) alternative_nogood: Vec<Predicate>,
     pub(crate) backjump_level: usize,
 }

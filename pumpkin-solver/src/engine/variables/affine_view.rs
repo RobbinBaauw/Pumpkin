@@ -86,6 +86,14 @@ where
         }
     }
 
+    fn lower_bound_initial(&self, assignment: &Assignments) -> i32 {
+        if self.scale < 0 {
+            self.map(self.inner.upper_bound_initial(assignment))
+        } else {
+            self.map(self.inner.lower_bound_initial(assignment))
+        }
+    }
+
     fn upper_bound(&self, assignment: &Assignments) -> i32 {
         if self.scale < 0 {
             self.map(self.inner.lower_bound(assignment))
@@ -109,6 +117,14 @@ where
                 self.inner
                     .upper_bound_at_trail_position(assignment, trail_position),
             )
+        }
+    }
+
+    fn upper_bound_initial(&self, assignment: &Assignments) -> i32 {
+        if self.scale < 0 {
+            self.map(self.inner.lower_bound_initial(assignment))
+        } else {
+            self.map(self.inner.upper_bound_initial(assignment))
         }
     }
 

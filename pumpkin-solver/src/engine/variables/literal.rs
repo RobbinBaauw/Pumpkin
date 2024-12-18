@@ -78,6 +78,10 @@ impl IntegerVariable for Literal {
             .lower_bound_at_trail_position(assignment, trail_position)
     }
 
+    fn lower_bound_initial(&self, assignment: &Assignments) -> i32 {
+        self.integer_variable.lower_bound_initial(assignment)
+    }
+
     /// Returns the upper bound represented as a 0-1 value.
     /// Literals that evaluate to true have an upper bound of 1.
     /// Literal that evaluate to false have a upper bound of 0.
@@ -93,6 +97,10 @@ impl IntegerVariable for Literal {
     ) -> i32 {
         self.integer_variable
             .upper_bound_at_trail_position(assignment, trail_position)
+    }
+
+    fn upper_bound_initial(&self, assignment: &Assignments) -> i32 {
+        self.integer_variable.upper_bound_initial(assignment)
     }
 
     /// Returns whether the input value, when interpreted as a bool,

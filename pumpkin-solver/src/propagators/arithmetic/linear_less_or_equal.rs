@@ -136,7 +136,7 @@ where
             let var_offsets = flat_vars.iter().map(|var| var.offset).sum::<i32>();
             let rhs = self.c - var_offsets;
 
-            LinearLessOrEqual { lhs, rhs }
+            LinearLessOrEqual::new(lhs, rhs)
         };
 
         PropagationReason(conjunction, Some(inequality))

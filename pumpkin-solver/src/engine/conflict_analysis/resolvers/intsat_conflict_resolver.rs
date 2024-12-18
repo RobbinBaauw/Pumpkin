@@ -10,12 +10,16 @@ use crate::engine::conflict_analysis::ConflictResolveResult::Nogood;
 use crate::engine::conflict_analysis::ConflictResolver;
 use crate::engine::conflict_analysis::LearnedConstraint;
 use crate::engine::conflict_analysis::LearnedNogood;
+use crate::engine::propagation::store::PropagatorStore;
 use crate::engine::propagation::CurrentNogood;
 use crate::engine::propagation::ExplanationContext;
 use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorId;
 use crate::engine::propagation::PropagatorInitialisationContext;
+use crate::engine::Assignments;
+use crate::engine::PropagatorQueue;
 use crate::engine::ResolutionResolver;
+use crate::engine::WatchListCP;
 use crate::predicates::Predicate;
 use crate::propagators::linear_inequality_literal_propagator::LinearInequalityLiteralPropagator;
 use crate::propagators::linear_less_or_equal::LinearLessOrEqualPropagator;
@@ -56,23 +60,21 @@ impl IntSatConflictResolver {
     }
 
     fn create_new_propagator(
-        context: &mut ConflictAnalysisContext,
+        propagators: &mut PropagatorStore,
+        assignments: &Assignments,
+        watch_list_cp: &mut WatchListCP,
+        propagator_queue: &mut PropagatorQueue,
         propagator: impl Propagator,
     ) -> PropagatorId {
-        let new_pred_prop_id = context.propagators.alloc(Box::new(propagator), None);
-        let new_propagator = &mut context.propagators[new_pred_prop_id];
+        let new_pred_prop_id = propagators.alloc(Box::new(propagator), None);
+        let new_propagator = &mut propagators[new_pred_prop_id];
 
-        let mut initialisation_context = PropagatorInitialisationContext::new(
-            &mut context.watch_list_cp,
-            new_pred_prop_id,
-            &context.assignments,
-        );
+        let mut initialisation_context =
+            PropagatorInitialisationContext::new(watch_list_cp, new_pred_prop_id, assignments);
 
         let _ = new_propagator.initialise_at_non_root(&mut initialisation_context);
 
-        context
-            .propagator_queue
-            .enqueue_propagator(new_pred_prop_id, new_propagator.priority());
+        propagator_queue.enqueue_propagator(new_pred_prop_id, new_propagator.priority());
 
         new_pred_prop_id
     }
@@ -82,8 +84,8 @@ impl IntSatConflictResolver {
         c1: &LinearLessOrEqual,
         c2: &LinearLessOrEqual,
     ) -> Result<CutSuccess, CutError> {
-        let c1_scale = c1.find_variable_scale(var).unwrap();
-        let c2_scale = c2.find_variable_scale(var).unwrap();
+        let c1_scale = c1.lhs.find_variable_scale(var).unwrap();
+        let c2_scale = c2.lhs.find_variable_scale(var).unwrap();
 
         // A pre-condition to apply a cut is that both constraints have 'var'
         // and that they have opposite signs
@@ -181,10 +183,7 @@ impl IntSatConflictResolver {
         new_rhs = div_ceil(new_rhs, new_gcd);
 
         Ok(CutSuccess {
-            inequality: LinearLessOrEqual {
-                lhs: new_lhs,
-                rhs: new_rhs,
-            },
+            inequality: LinearLessOrEqual::new(new_lhs, new_rhs),
             skip_early_backjump,
         })
     }
@@ -228,7 +227,10 @@ impl ConflictResolver for IntSatConflictResolver {
             }
 
             // If the conflicting constraint doesn't contain this variable, go to next level
-            if !conflicting_constraint.contains_variable(trail_entry_var) {
+            if !conflicting_constraint
+                .lhs
+                .contains_variable(trail_entry_var)
+            {
                 debug!("==>==> Not containing {trail_entry_var} at {trail_index}, skip");
                 trail_index -= 1;
                 continue;
@@ -310,9 +312,11 @@ impl ConflictResolver for IntSatConflictResolver {
             // the conflict should have a different sign. We search until we find that one.
             let cutting_var = trail_entry.predicate.get_domain();
             let c1_scale = conflicting_constraint
+                .lhs
                 .find_variable_scale(cutting_var)
                 .unwrap();
             let c2_scale = prop_constraint_expl
+                .lhs
                 .find_variable_scale(cutting_var)
                 .unwrap();
 
@@ -433,7 +437,7 @@ impl ConflictResolver for IntSatConflictResolver {
                         .counters
                         .intsat_statistics
                         .intsat_learned_constraints_avg_length
-                        .add_term(conflicting_constraint.lhs.len() as u64);
+                        .add_term(conflicting_constraint.lhs.0.len() as u64);
                     context
                         .counters
                         .intsat_statistics
@@ -453,7 +457,6 @@ impl ConflictResolver for IntSatConflictResolver {
                     } else {
                         Some(Constraint(LearnedConstraint {
                             constraint: conflicting_constraint,
-                            auxiliary_variables: Default::default(), // TODO
                             alternative_nogood: learned_nogood.predicates,
                             backjump_level,
                         }))
@@ -500,29 +503,35 @@ impl ConflictResolver for IntSatConflictResolver {
         // backtracking... The LinLeq propagator only requires lower bounds at this point in
         // time, which is always correct if you immediately apply propagator after
         // backtracking. Same for nogood propagator. Let's see...
-        let mut learned_constraint = learned_constraint.clone();
-        for (var_id, var_linleq) in learned_constraint.auxiliary_variables {
-            let new_var_id = context.assignments.new_aux_variable(var_linleq.clone());
+        for (var_linleq, var_id) in &context.assignments.new_linleq_literals {
+            let new_pred_prop = LinearInequalityLiteralPropagator::new(var_linleq.clone(), *var_id);
+            let _ = Self::create_new_propagator(
+                context.propagators,
+                context.assignments,
+                context.watch_list_cp,
+                context.propagator_queue,
+                new_pred_prop,
+            );
+        }
+        context.assignments.new_linleq_literals.clear();
 
-            // Update the ids using this var to their new ids
+        let new_linear_prop = LinearLessOrEqualPropagator::new_learned(
             learned_constraint
                 .constraint
                 .lhs
-                .iter_mut()
-                .filter(|(id, _)| *id == var_id)
-                .for_each(|(id, _)| *id = new_var_id);
-
-            let new_pred_prop = LinearInequalityLiteralPropagator::new(var_linleq, new_var_id);
-            let _ = Self::create_new_propagator(context, new_pred_prop);
-        }
-
-        let new_linear_prop = LinearLessOrEqualPropagator::new_learned(
-            learned_constraint.constraint.to_vars().into_boxed_slice(),
+                .to_vars()
+                .into_boxed_slice(),
             learned_constraint.constraint.rhs,
             context.assignments,
             learned_constraint.alternative_nogood.clone(),
         );
-        let new_propagator_id = Self::create_new_propagator(context, new_linear_prop);
+        let new_propagator_id = Self::create_new_propagator(
+            context.propagators,
+            context.assignments,
+            context.watch_list_cp,
+            context.propagator_queue,
+            new_linear_prop,
+        );
 
         if !LOG_NOGOODS {
             if let Some(learned_constraint_log) = &mut context.learned_constraint_log {
@@ -616,12 +625,12 @@ mod tests {
         let [a, b, c, d, e] = construct_test_vars();
 
         let x = LinearLessOrEqual {
-            lhs: vec![(a, 10), (b, 2), (c, 4), (d, -5)],
+            lhs: vec![(a, 10), (b, 2), (c, 4), (d, -5)].into(),
             rhs: 12,
         };
 
         let y = LinearLessOrEqual {
-            lhs: vec![(a, -4), (b, -4), (c, 6), (e, 8)],
+            lhs: vec![(a, -4), (b, -4), (c, 6), (e, 8)].into(),
             rhs: -6,
         };
 
@@ -631,7 +640,7 @@ mod tests {
         } = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap();
 
         let z = LinearLessOrEqual {
-            lhs: vec![(b, -8), (c, 19), (d, -5), (e, 20)],
+            lhs: vec![(b, -8), (c, 19), (d, -5), (e, 20)].into(),
             rhs: -3,
         };
 
@@ -647,12 +656,12 @@ mod tests {
         let [a, b, c, d, e] = construct_test_vars();
 
         let x = LinearLessOrEqual {
-            lhs: vec![(a, -4), (b, 2), (c, 4), (d, -5)],
+            lhs: vec![(a, -4), (b, 2), (c, 4), (d, -5)].into(),
             rhs: 10,
         };
 
         let y = LinearLessOrEqual {
-            lhs: vec![(a, 4), (b, -4), (c, 6), (e, 8)],
+            lhs: vec![(a, 4), (b, -4), (c, 6), (e, 8)].into(),
             rhs: -5,
         };
 
@@ -662,7 +671,7 @@ mod tests {
         } = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap();
 
         let z = LinearLessOrEqual {
-            lhs: vec![(b, -2), (c, 10), (d, -5), (e, 8)],
+            lhs: vec![(b, -2), (c, 10), (d, -5), (e, 8)].into(),
             rhs: 5,
         };
 
@@ -678,12 +687,12 @@ mod tests {
         let [a, b, c, d, e] = construct_test_vars();
 
         let x = LinearLessOrEqual {
-            lhs: vec![(a, -4), (b, 2), (c, 4), (d, -5)],
+            lhs: vec![(a, -4), (b, 2), (c, 4), (d, -5)].into(),
             rhs: 10,
         };
 
         let y = LinearLessOrEqual {
-            lhs: vec![(a, 4), (e, 8)],
+            lhs: vec![(a, 4), (e, 8)].into(),
             rhs: -5,
         };
 
@@ -693,7 +702,7 @@ mod tests {
         } = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap();
 
         let z = LinearLessOrEqual {
-            lhs: vec![(b, 2), (c, 4), (d, -5), (e, 8)],
+            lhs: vec![(b, 2), (c, 4), (d, -5), (e, 8)].into(),
             rhs: 5,
         };
 
@@ -709,12 +718,12 @@ mod tests {
         let [a, b, c, d, e] = construct_test_vars();
 
         let x = LinearLessOrEqual {
-            lhs: vec![(a, -10), (b, 2), (c, 4), (d, -5), (e, -1)],
+            lhs: vec![(a, -10), (b, 2), (c, 4), (d, -5), (e, -1)].into(),
             rhs: 10,
         };
 
         let y = LinearLessOrEqual {
-            lhs: vec![(a, 4), (b, -4), (c, 6), (d, 5), (e, 8)],
+            lhs: vec![(a, 4), (b, -4), (c, 6), (d, 5), (e, 8)].into(),
             rhs: -5,
         };
 
@@ -724,7 +733,7 @@ mod tests {
         } = IntSatConflictResolver::apply_cut(a, &x, &y).unwrap();
 
         let z = LinearLessOrEqual {
-            lhs: vec![(b, -16), (c, 38), (d, 15), (e, 38)],
+            lhs: vec![(b, -16), (c, 38), (d, 15), (e, 38)].into(),
             rhs: -5,
         };
 
@@ -740,12 +749,12 @@ mod tests {
         let [a, b, c, d, e] = construct_test_vars();
 
         let x = LinearLessOrEqual {
-            lhs: vec![(a, -2), (b, 2), (c, -3), (d, -5), (e, -4)],
+            lhs: vec![(a, -2), (b, 2), (c, -3), (d, -5), (e, -4)].into(),
             rhs: 0,
         };
 
         let y = LinearLessOrEqual {
-            lhs: vec![(a, 4), (b, -4), (c, 6), (d, 10), (e, 8)],
+            lhs: vec![(a, 4), (b, -4), (c, 6), (d, 10), (e, 8)].into(),
             rhs: -5,
         };
 
@@ -759,12 +768,12 @@ mod tests {
         let [a, b, c, d, e] = construct_test_vars();
 
         let x = LinearLessOrEqual {
-            lhs: vec![(a, -2), (b, 2), (c, -3), (d, -5), (e, -4)],
+            lhs: vec![(a, -2), (b, 2), (c, -3), (d, -5), (e, -4)].into(),
             rhs: 10,
         };
 
         let y = LinearLessOrEqual {
-            lhs: vec![(a, 4), (b, -4), (c, 6), (d, 10), (e, 8)],
+            lhs: vec![(a, 4), (b, -4), (c, 6), (d, 10), (e, 8)].into(),
             rhs: -5,
         };
 
@@ -778,12 +787,12 @@ mod tests {
         let [a, b, c, d, e] = construct_test_vars();
 
         let x = LinearLessOrEqual {
-            lhs: vec![(a, -99997), (b, 223545223), (c, -3), (d, -5), (e, -4)],
+            lhs: vec![(a, -99997), (b, 223545223), (c, -3), (d, -5), (e, -4)].into(),
             rhs: 10,
         };
 
         let y = LinearLessOrEqual {
-            lhs: vec![(a, 99995), (b, -1000), (c, 6), (d, 10), (e, 8)],
+            lhs: vec![(a, 99995), (b, -1000), (c, 6), (d, 10), (e, 8)].into(),
             rhs: -5,
         };
 

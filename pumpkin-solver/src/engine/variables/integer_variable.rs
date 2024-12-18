@@ -26,12 +26,18 @@ pub trait IntegerVariable:
     fn lower_bound_at_trail_position(&self, assignment: &Assignments, trail_position: usize)
         -> i32;
 
+    /// Get the initial lower bound of the variable.
+    fn lower_bound_initial(&self, assignment: &Assignments) -> i32;
+
     /// Get the upper bound of the variable.
     fn upper_bound(&self, assignment: &Assignments) -> i32;
 
     /// Get the upper bound of the variable at the given trail position.
     fn upper_bound_at_trail_position(&self, assignment: &Assignments, trail_position: usize)
         -> i32;
+
+    /// Get the initial upper bound of the variable.
+    fn upper_bound_initial(&self, assignment: &Assignments) -> i32;
 
     /// Determine whether the value is in the domain of this variable.
     fn contains(&self, assignment: &Assignments, value: i32) -> bool;

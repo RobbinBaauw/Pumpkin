@@ -20,6 +20,12 @@ impl From<PropositionalConjunction> for PropagationReason {
     }
 }
 
+impl From<(PropositionalConjunction, LinearLessOrEqual)> for PropagationReason {
+    fn from(conflict_reason: (PropositionalConjunction, LinearLessOrEqual)) -> Self {
+        PropagationReason(conflict_reason.0, Some(conflict_reason.1))
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Inconsistency {
     EmptyDomain,

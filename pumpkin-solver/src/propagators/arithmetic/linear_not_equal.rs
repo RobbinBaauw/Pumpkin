@@ -1,7 +1,10 @@
 use std::rc::Rc;
 
 use enumset::enum_set;
+use itertools::Itertools;
 
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqual;
+use crate::basic_types::linear_less_or_equal::LinearLessOrEqualLhs;
 use crate::basic_types::PropagationReason;
 use crate::basic_types::PropagationStatusCP;
 use crate::basic_types::PropositionalConjunction;
@@ -15,6 +18,7 @@ use crate::engine::propagation::PropagationContextMut;
 use crate::engine::propagation::Propagator;
 use crate::engine::propagation::PropagatorInitialisationContext;
 use crate::engine::variables::IntegerVariable;
+use crate::engine::Assignments;
 use crate::engine::IntDomainEvent;
 use crate::predicate;
 use crate::pumpkin_assert_extreme;
@@ -56,6 +60,71 @@ where
             unfixed_variable_has_been_updated: false,
             should_recalculate_lhs: false,
         }
+    }
+
+    fn create_propagation_inequality(&self, assignments: &mut Assignments) -> LinearLessOrEqual {
+        // We have two options: either Ax < b or Ax > b.
+        // We use an aux variable p to represent Ax > b <=> p.
+        // This allows us to construct two possible inequalities:
+        // * Ax <= b - 1 + Mp
+        // * Ax >= b + 1 - M(1-p)
+        //
+        // Rewriting to linear inequalities leads to
+        // * Ax - Mp <= b - 1
+        // * -Ax + Mp <= -b - 1 + M
+        //
+        // Determining M: we need M to be sufficiently large, and then as small as possible.
+        // Assume the same equations in which M has to take effect:
+        // * Ax - b + 1 <= M
+        // * -Ax + b + 1 <= M
+        //
+        // We can find the value for M by finding the maximal value of the LHS now (using initial
+        // domains):
+        // * ub(Ax) - b + 1 <= M
+        // * -lb(Ax) + b + 1 <= M
+        //
+        // We take the maximum of both found M's to find the final M.
+        // If M is negative, we do not need it, so we have found a global constraint and can just
+        // set M to 0
+
+        // Transform terms into linleq
+        let flat_vars = self.terms.iter().map(|term| term.flatten()).collect_vec();
+
+        let lhs = LinearLessOrEqualLhs(flat_vars.iter().map(|var| (var.id, var.scale)).collect());
+
+        let var_offsets = flat_vars.iter().map(|var| var.offset).sum::<i32>();
+        let rhs = self.rhs - var_offsets;
+
+        // Construct auxiliary variable
+        // Ax > b, or Ax >= b + 1, or -Ax <= -b - 1
+        let mut define_lhs = lhs.clone();
+        define_lhs.iter_mut().for_each(|(_, scale)| *scale *= -1);
+
+        let defining_constraint = LinearLessOrEqual::new(define_lhs, -rhs - 1);
+        let p = assignments.new_aux_variable(defining_constraint);
+
+        // Compute big_m
+        let lb_lhs = lhs.lb_initial(assignments) as i32; // TODO handle overflows
+        let ub_lhs = lhs.ub_initial(assignments) as i32; // TODO handle overflows
+
+        let big_m_opt_1 = (ub_lhs - rhs + 1).max(0);
+        let big_m_opt_2 = (-lb_lhs + rhs + 1).max(0);
+        let big_m = big_m_opt_1.max(big_m_opt_2);
+
+        // Option 1: Ax - Mp <= b - 1
+        let mut opt_1_lhs = lhs.clone();
+        opt_1_lhs.0.push((p, -big_m));
+
+        let opt_1 = LinearLessOrEqual::new(opt_1_lhs, rhs - 1);
+
+        // Option 2: Ax - Mp <= b - 1
+        let mut opt_2_lhs = lhs.clone();
+        opt_2_lhs.iter_mut().for_each(|(_, scale)| *scale *= -1);
+        opt_2_lhs.0.push((p, big_m));
+
+        let opt_2 = LinearLessOrEqual::new(opt_2_lhs, -rhs - 1 + big_m);
+
+        opt_1 // TODO pick the best option
     }
 }
 
@@ -185,15 +254,20 @@ where
                 // from the unfixed variable
                 self.unfixed_variable_has_been_updated = true;
 
+                let reason_linleq = self.create_propagation_inequality(context.assignments);
+
                 context.remove(
                     &self.terms[unfixed_x_i],
                     value_to_remove,
-                    self.terms
-                        .iter()
-                        .enumerate()
-                        .filter(|&(i, _)| i != unfixed_x_i)
-                        .map(|(_, x_i)| predicate![x_i == context.lower_bound(x_i)])
-                        .collect::<PropositionalConjunction>(),
+                    (
+                        self.terms
+                            .iter()
+                            .enumerate()
+                            .filter(|&(i, _)| i != unfixed_x_i)
+                            .map(|(_, x_i)| predicate![x_i == context.lower_bound(x_i)])
+                            .collect::<PropositionalConjunction>(),
+                        reason_linleq,
+                    ),
                 )?;
             }
         } else if self.number_of_fixed_terms == self.terms.len() {

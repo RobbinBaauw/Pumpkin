@@ -21,6 +21,9 @@ pub struct Assignments {
     events: EventSink,
     backtrack_events: EventSink,
 
+    pub(crate) linleq_literals: HashMap<LinearLessOrEqual, DomainId>,
+    pub(crate) new_linleq_literals: Vec<(LinearLessOrEqual, DomainId)>,
+
     /// The number of values that have been pruned from the domain.
     pruned_values: u64,
 }
@@ -32,6 +35,10 @@ impl Default for Assignments {
             domains: Default::default(),
             events: Default::default(),
             backtrack_events: Default::default(),
+
+            linleq_literals: Default::default(),
+            new_linleq_literals: Default::default(),
+
             pruned_values: 0,
         };
 
@@ -141,9 +148,16 @@ impl Assignments {
     }
 
     pub(crate) fn new_aux_variable(&mut self, linear_leq: LinearLessOrEqual) -> DomainId {
+        if let Some(existing_var) = self.linleq_literals.get(&linear_leq) {
+            return *existing_var;
+        }
+
         let id = DomainId {
             id: self.num_domains(),
         };
+
+        self.new_linleq_literals.push((linear_leq.clone(), id));
+        let _ = self.linleq_literals.insert(linear_leq.clone(), id);
 
         let _ = self
             .domains
@@ -242,6 +256,8 @@ impl Assignments {
             domains,
             events: event_sink,
             backtrack_events: EventSink::default(),
+            linleq_literals: Default::default(),
+            new_linleq_literals: Default::default(),
             pruned_values: self.pruned_values,
         }
     }
