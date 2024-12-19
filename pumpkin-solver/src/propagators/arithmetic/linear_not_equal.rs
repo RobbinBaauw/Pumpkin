@@ -273,7 +273,11 @@ where
         } else if self.number_of_fixed_terms == self.terms.len() {
             pumpkin_assert_simple!(!self.should_recalculate_lhs);
             // Otherwise we check for a conflict
-            self.check_for_conflict(context.as_readonly())?;
+            self.check_for_conflict(context.as_readonly())
+                .map_err(|e| {
+                    let ineq = self.create_propagation_inequality(context.assignments);
+                    PropagationReason::from((e.0, ineq))
+                })?;
         }
 
         Ok(())
@@ -366,10 +370,7 @@ impl<Var: IntegerVariable + 'static> LinearNotEqualPropagator<Var> {
     }
 
     /// Determines whether a conflict has occurred and calculate the reason for the conflict
-    fn check_for_conflict(
-        &self,
-        context: PropagationContext,
-    ) -> Result<(), PropositionalConjunction> {
+    fn check_for_conflict(&self, context: PropagationContext) -> Result<(), PropagationReason> {
         pumpkin_assert_simple!(!self.should_recalculate_lhs);
         if self.number_of_fixed_terms == self.terms.len() && self.fixed_lhs == self.rhs {
             let failure_reason: PropositionalConjunction = self
@@ -378,7 +379,7 @@ impl<Var: IntegerVariable + 'static> LinearNotEqualPropagator<Var> {
                 .map(|x_i| predicate![x_i == context.lower_bound(x_i)])
                 .collect();
 
-            return Err(failure_reason);
+            return Err(failure_reason.into());
         }
         Ok(())
     }
